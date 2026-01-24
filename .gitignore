@@ -8,3 +8,4 @@ lever.py
 main.py
 *.pdf
 *.docx
+venv/
