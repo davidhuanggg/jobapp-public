@@ -79,7 +79,6 @@ Return the explanation in plain text. Role: "{role_title}"
     return groq_call(prompt)
 
 # ============================
-# 1️⃣ PARSE RESUME
 # ============================
 if not RESUME_PATH.exists():
     raise FileNotFoundError(f"Resume not found: {RESUME_PATH}")
@@ -94,7 +93,6 @@ resume_data = response.json()
 raw_text = resume_data.get("raw_text", "")
 
 # ============================
-# 5️⃣ UPSKILL / LEARNING PATH
 # ============================
 def recommend_learning_path(candidate_skills: list[str], role_title: str, role_skills: list[str]) -> dict:
     """
@@ -152,7 +150,6 @@ Return JSON ONLY in this format:
 
 
 # ============================
-# 2️⃣ GENERATE RECOMMENDED JOB ROLES
 # ============================
 prompt_roles = f"""
 Candidate Resume:
@@ -185,7 +182,6 @@ except Exception as e:
     raise RuntimeError(f"Error parsing LLM output: {e}\nRaw output:\n{llm_output}")
 
 # ============================
-# 3️⃣ ADD DETAILED ROLE EXPLANATIONS
 # ============================
 for role in recommendations.get("recommended_roles", []):
     try:
@@ -221,7 +217,6 @@ for role in recommendations.get("recommended_roles", []):
 
 
 # ============================
-# 4️⃣ SAVE FINAL OUTPUT
 # ============================
 with OUTPUT_PATH.open("w") as f:
     json.dump(recommendations, f, indent=2)

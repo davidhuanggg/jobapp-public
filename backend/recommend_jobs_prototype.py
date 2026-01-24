@@ -146,7 +146,7 @@ with OUTPUT_PATH.open("w") as f:
 
 print(f"Enhanced job recommendations saved to {OUTPUT_PATH.resolve()}")
 
-print("\n✅ Job recommendations generated")
+print("\n Job recommendations generated")
 print(json.dumps(recommendations, indent=2))
-print(f"\n📁 Saved to: {OUTPUT_PATH.resolve()}")
+print(f"\n Saved to: {OUTPUT_PATH.resolve()}")
 
