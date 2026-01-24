@@ -9,8 +9,6 @@ import os
 
 load_dotenv()  # ← THIS reads the .env file
 
-print(os.getenv("GROQ_API_KEY"))  # test
-
 # ============================
 # CONFIG
 # ============================
