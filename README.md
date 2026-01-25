@@ -10,7 +10,7 @@ This project is intended as a backend service for a future job-search or career 
 Features:
 
 - Resume upload & parsing
-- Strucutured resume extraction (skils,education,experience)
+- Strucutured resume extraction (skills,education,experience)
 - AI-powered job recommendations
 - FastAPI + pydantic models
 - Environment-based API key management
