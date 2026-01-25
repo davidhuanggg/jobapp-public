@@ -5,7 +5,7 @@ A FastAPI backend that:
 - Extracts structured resume information
 - Generates job role recommendations using an LLM(Groq)
 
-This project is intended as a backend service for a fure job-search or career guidance app
+This project is intended as a backend service for a future job-search or career guidance app
 
 Features:
 
