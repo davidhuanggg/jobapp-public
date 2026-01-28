@@ -1,5 +1,3 @@
-# backend/app/api.py
-
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from app.services.recommendation_service import get_recommendations, explain_role
 from app.services.extractor_service import extract_resume_data
@@ -7,6 +5,8 @@ from app.models.resume_models import Resume, RecommendationResponse
 import tempfile
 import os
 from app.db.db import save_resume, init_db
+from app.services.extractor_service import extract_resume_data
+
 router = APIRouter()
 
 init_db()
@@ -17,7 +17,7 @@ async def parse_and_recommend(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Resume file is required")
 
     # Extract resume
-    resume_data = extract_resume_data(file)
+    resume_data = await extract_resume_data(file)
     if not resume_data:
         raise HTTPException(status_code=400, detail="Failed to parse resume")
 

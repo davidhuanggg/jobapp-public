@@ -1,21 +1,33 @@
 import os
 import tempfile
 from fastapi import UploadFile
+from .resume_parser import extract_text_from_pdf, extract_text_from_docx,extract_skills,extract_education,extract_work_experience
 
-# This is your existing parsing logic
-def extract_resume_data(file_path: str) -> dict:
-    """
-    Parse a PDF/Word resume and return structured data.
-    """
-    # For demo purposes, just returning dummy structured data
+async def extract_resume_data(file: UploadFile) -> dict:
+    contents = await file.read()
+
+    if not contents:
+        return None
+
+    filename = file.filename.lower()
+
+    if filename.endswith(".pdf"):
+        raw_text = extract_text_from_pdf(contents)
+    elif filename.endswith(".docx"):
+        raw_text = extract_text_from_docx(contents)
+    elif filename.endswith(".txt"):
+        raw_text = contents.decode("utf-8", errors="ignore")
+    else:
+        raise ValueError("Unsupported file type")
+
+    if not raw_text.strip():
+        return None
+
     return {
-        "name": "John Doe",
-        "contact": {"email": "johndoe@example.com", "phone": "123-456-7890"},
-        "education": {"degree": "Bachelor's", "field": "CS", "university": "Example U"},
-        "work_experience": [
-            {"company": "Example Co", "position": "Software Engineer", "duration": "2 yrs"}
-        ],
-        "skills": ["Python", "SQL", "Machine Learning"]
+        "raw_text": raw_text,
+        "skills": extract_skills(raw_text),
+        "education": extract_education(raw_text),
+        "work_experience": extract_work_experience(raw_text),
     }
 
 async def parse_resume_file(file: UploadFile):
