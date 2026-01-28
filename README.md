@@ -33,7 +33,9 @@ create virtual environment
 
 pip install -r requirements.txt
 
-create a .env file inside the services directory
+create a .env file (touch .env) inside the services directory and get a free api key from groq https://console.groq.com/home
+
+edit the .env file with (nano .env) and add GROQ_API_KEY = YOUR UNIQUE API KEY FROM GROQ
 
 run the app uvicorn app.main:app --reload at backend directory
 
@@ -41,8 +43,10 @@ the API will be available at:
 http://127.0.0.1:8000
 swagger UI: http://127.0.0.1:8000/docs
 
-use the POST /parse-resume
+use the POST /parse_and_recommend
 upload a file(pdf,docx)
+
+click execute
 
 NOTE:
 This project is still being worked on currently.
