@@ -1,69 +1,51 @@
-from fastapi import APIRouter, UploadFile, File
-from app.models.resume_models import Resume, RecommendedRole, RecommendationResponse
-# backend/app/api.py
-from fastapi import APIRouter, UploadFile, File, HTTPException
-from app.services.recommendation_service import get_recommendations, explain_role
-import tempfile
-from app.models.resume_models import Resume
-from app.services.extractor_service import extract_resume_data
-from app.models.resume_models import Resume, RecommendationResponse
-import tempfile
-import os
-from app.services.extractor_service import parse_resume_file
-
-router = APIRouter()
-
-@router.post("/parse-and-recommend", response_model=RecommendationResponse)
-async def parse_and_recommend(file: UploadFile = File(...)):
-    resume_data = await parse_resume_file(file)
-    if not resume_data.get("skills"):
-        raise HTTPException(status_code=400, detail="No skills extracted from resume.")
-    """
-    Upload a resume file, parse it for skills, education, and work experience,
-    then return recommended job roles with explanations.
-    """
-    if not file:
-        raise HTTPException(status_code=400, detail="Resume file is required")
-    # Save uploaded file temporarily
-    suffix = os.path.splitext(file.filename)[1] or ".pdf"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(await file.read())
-        tmp_path = tmp.name
-    # Extract structured resume data
-    resume_data = extract_resume_data(tmp_path)
-    os.remove(tmp_path)
-    if not resume_data:
-        raise HTTPException(status_code=400, detail="Failed to parse resume")
-    skills = resume_data.get("skills", [])
-    education = resume_data.get("education", {})
-    work_experience = resume_data.get("work_experience", [])
-    if not skills:
-        raise HTTPException(
-            status_code=400,
-            detail="No skills extracted from resume. Cannot generate recommendations"
-        )
-
-    # Generate recommendations based on structured resume data
-    recommendations = get_recommendations(
-        skills=resume_data.get("skills", []),
-        education=resume_data.get("education", {}),
-        work_experience=resume_data.get("work_experience", [])
-        skills=skills,
-        education=education,
-        work_experience=work_experience
-    )
-
-    # Add detailed explanations for each recommended role
-    for role in recommendations.get("recommended_roles", []):
-        role["detailed_explanation"] = explain_role(role["title"])
-
+# backend/app/db/crud.py
 from sqlalchemy.orm import Session
-from app.db.models import ResumeDB
-def save_resume(db: Session, raw_text: str) -> ResumeDB:
-    resume = ResumeDB(raw_text=raw_text)
+from app.db.models import ResumeDB, EducationDB, WorkExperienceDB
+
+def save_resume(db: Session, resume_data: dict) -> ResumeDB:
+    """Save a structured resume with education & work experience"""
+    # 1️⃣ Save main resume
+    resume = ResumeDB(
+        raw_text=resume_data.get("raw_text", ""),
+        name=resume_data.get("name", ""),
+        email=resume_data.get("contact", {}).get("email", ""),
+        phone=resume_data.get("contact", {}).get("phone", ""),
+        skills=resume_data.get("skills", [])
+    )
     db.add(resume)
     db.commit()
     db.refresh(resume)
+
+    # 2️⃣ Save education
+    for edu in resume_data.get("education", []):
+        edu_obj = EducationDB(
+            resume_id=resume.id,
+            degree=edu.get("degree", ""),
+            field=edu.get("field", ""),
+            university=edu.get("university", "")
+        )
+        resume.education.append(edu_obj)
+        db.add(edu_obj)
+
+    # 3️⃣ Save work experience
+    for exp in resume_data.get("work_experience", []):
+        exp_obj = WorkExperienceDB(
+            resume_id=resume.id,
+            company=exp.get("company", ""),
+            position=exp.get("position", ""),
+            duration=exp.get("duration", "")
+        )
+        resume.work_experience.append(exp_obj)
+        db.add(exp_obj)
+
+    db.commit()
     return resume
+
+
 def get_resume(db: Session, resume_id: int) -> ResumeDB | None:
     return db.query(ResumeDB).filter(ResumeDB.id == resume_id).first()
+
+
+def get_all_resumes(db: Session):
+    return db.query(ResumeDB).all()
+

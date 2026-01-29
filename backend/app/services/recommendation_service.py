@@ -9,31 +9,33 @@ from groq import Groq
 # ============================
 load_dotenv()
 
-if not os.getenv("GROQ_API_KEY"):
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY not found. Add it to your .env file.")
 
 # ============================
 # GROQ CLIENT
 # ============================
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+client = Groq(api_key=GROQ_API_KEY)
 GROQ_MODEL = "llama-3.1-8b-instant"
 
-api_key = os.getenv("GROQ_API_KEY")
-if not api_key:
-    raise RuntimeError("GROQ_API_KEY not found. Add it to your .env file.")
 
-client = Groq(api_key=api_key)
-
+# ============================
+# HELPERS
+# ============================
 def extract_json(text: str) -> dict:
-    import re, json
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         return json.loads(match.group())
-    return {}
+    return {"recommended_roles": []}
 
+
+# ============================
+# MAIN RECOMMENDER
+# ============================
 def get_recommendations(
     skills: list[str],
-    education: dict,
+    education: list[dict],
     work_experience: list[dict],
 ):
     """
@@ -41,7 +43,28 @@ def get_recommendations(
     """
 
     if not skills and not work_experience:
-        raise ValueError("Insufficient resume data to generate recommendations")
+        return {"recommended_roles": []}
+
+    # ---- Education (LIST SAFE) ----
+    education_section = (
+        "\n".join(
+            f"- Degree: {e.get('degree', 'N/A')}, "
+            f"Field: {e.get('field', 'N/A')}, "
+            f"Institution: {e.get('institution', 'N/A')}"
+            for e in education
+        )
+        if education else "- N/A"
+    )
+
+    # ---- Work Experience (LIST SAFE) ----
+    work_experience_section = (
+        "\n".join(
+            f"- {w.get('title', 'N/A')} at {w.get('company', 'N/A')} "
+            f"({w.get('duration', 'N/A')})"
+            for w in work_experience
+        )
+        if work_experience else "- N/A"
+    )
 
     prompt = f"""
 You are a job recommendation engine.
@@ -54,18 +77,13 @@ STRICT RULES:
 - If no roles are justified, return an empty list.
 
 Candidate Skills:
-{chr(10).join(f"- {s}" for s in skills)}
+{chr(10).join(f"- {s}" for s in skills) if skills else "- N/A"}
 
 Education:
-- Degree: {education.get("degree", "N/A")}
-- Field: {education.get("field", "N/A")}
-- Institution: {education.get("institution", "N/A")}
+{education_section}
 
 Work Experience:
-{chr(10).join(
-    f"- {w.get('title')} at {w.get('company')} ({w.get('duration', 'N/A')})"
-    for w in work_experience
-)}
+{work_experience_section}
 
 Return JSON ONLY in this format:
 {{
@@ -79,7 +97,7 @@ Return JSON ONLY in this format:
 """
 
     response = client.chat.completions.create(
-	model="llama-3.1-8b-instant",
+        model=GROQ_MODEL,
         messages=[
             {"role": "system", "content": "You are a precise JSON-only API."},
             {"role": "user", "content": prompt},
@@ -88,10 +106,20 @@ Return JSON ONLY in this format:
         max_tokens=700,
     )
 
-    return json.loads(response.choices[0].message.content)
+    return extract_json(response.choices[0].message.content)
 
+
+# ============================
+# ROLE EXPLANATION
+# ============================
 def explain_role(role_title: str) -> str:
-    prompt = f"Explain the role '{role_title}' in detail (duties, skills, industries)."
+    prompt = f"""
+Explain the role "{role_title}" in detail:
+- Typical responsibilities
+- Required skills
+- Common industries
+"""
+
     response = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[
@@ -99,5 +127,8 @@ def explain_role(role_title: str) -> str:
             {"role": "user", "content": prompt},
         ],
         temperature=0.2,
+        max_tokens=400,
     )
-    return response.choices[0].message.content
+
+    return response.choices[0].message.content.strip()
+
