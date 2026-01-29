@@ -1,4 +1,3 @@
-# backend/app/api.py
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.services.extractor_service import extract_resume_data
@@ -29,8 +28,13 @@ async def parse_and_recommend(file: UploadFile = File(...), db: Session = Depend
         raise HTTPException(status_code=400, detail="No skills extracted from resume.")
 
     # Save resume to DB
-    saved_resume = save_resume(db, resume_data)
-
+    try:
+        saved_resume = save_resume(db, resume_data)
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail="This resume has already been uploaded"
+        )
     # Generate recommendations
     recommendations = get_recommendations(
         skills=resume_data.get("skills", []),

@@ -1,22 +1,26 @@
-# backend/app/db/crud.py
 from sqlalchemy.orm import Session
 from app.db.models import ResumeDB, EducationDB, WorkExperienceDB
+from app.utils.hash_utils import hash_resume
+from sqlalchemy.exc import IntegrityError
 
 def save_resume(db: Session, resume_data: dict) -> ResumeDB:
+    content_hash = hash_resume(resume_data["raw_text"])
     """Save a structured resume with education & work experience"""
-    # 1️⃣ Save main resume
     resume = ResumeDB(
         raw_text=resume_data.get("raw_text", ""),
         name=resume_data.get("name", ""),
         email=resume_data.get("contact", {}).get("email", ""),
         phone=resume_data.get("contact", {}).get("phone", ""),
-        skills=resume_data.get("skills", [])
+        skills=resume_data.get("skills", []),
+        content_hash=content_hash
     )
     db.add(resume)
-    db.commit()
-    db.refresh(resume)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise ValueError("Duplicate resume detected")
 
-    # 2️⃣ Save education
     for edu in resume_data.get("education", []):
         edu_obj = EducationDB(
             resume_id=resume.id,
@@ -27,7 +31,6 @@ def save_resume(db: Session, resume_data: dict) -> ResumeDB:
         resume.education.append(edu_obj)
         db.add(edu_obj)
 
-    # 3️⃣ Save work experience
     for exp in resume_data.get("work_experience", []):
         exp_obj = WorkExperienceDB(
             resume_id=resume.id,
@@ -38,7 +41,7 @@ def save_resume(db: Session, resume_data: dict) -> ResumeDB:
         resume.work_experience.append(exp_obj)
         db.add(exp_obj)
 
-    db.commit()
+    db.refresh(resume)
     return resume
 
 

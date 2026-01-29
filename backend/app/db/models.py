@@ -16,7 +16,8 @@ class ResumeDB(Base):
     # Relationships
     education = relationship("EducationDB", back_populates="resume", cascade="all, delete-orphan")
     work_experience = relationship("WorkExperienceDB", back_populates="resume", cascade="all, delete-orphan")
-
+#SHA-256 always produces 64 hex characters this line helps prevent duplication
+    content_hash = Column(String(64), unique=True, nullable=False)
 
 class EducationDB(Base):
     __tablename__ = "education"
