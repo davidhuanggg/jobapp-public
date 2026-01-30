@@ -5,6 +5,12 @@ from app.services.recommendation_service import get_recommendations, explain_rol
 from app.db.crud import save_resume
 from app.db.database import SessionLocal
 from app.models.resume_models import RecommendationResponse
+from app.services.job_skill_service import extract_job_skills
+from app.services.skill_gap_service import (
+    aggregate_job_skills,
+    compute_skill_gap,
+    rank_skills
+)
 
 router = APIRouter()
 
@@ -16,35 +22,61 @@ def get_db():
     finally:
         db.close()
 
-@router.post("/parse-and-recommend", response_model=RecommendationResponse)
-async def parse_and_recommend(file: UploadFile = File(...), db: Session = Depends(get_db)):
+@router.post("/parse-and-recommend")
+async def parse_and_recommend(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
     if not file:
-        raise HTTPException(status_code=400, detail="Resume file is required")
+        raise HTTPException(400, "Resume file is required")
 
-    # Extract structured resume
     resume_data = await extract_resume_data(file)
+    if not resume_data:
+        raise HTTPException(400, "Failed to parse resume")
 
-    if not resume_data.get("skills"):
-        raise HTTPException(status_code=400, detail="No skills extracted from resume.")
+    skills = resume_data.get("skills", [])
+    education = resume_data.get("education", {})
+    work_experience = resume_data.get("work_experience", [])
 
-    # Save resume to DB
+    if not skills:
+        raise HTTPException(400, "No skills extracted from resume")
+
     try:
         saved_resume = save_resume(db, resume_data)
     except ValueError:
-        raise HTTPException(
-            status_code=409,
-            detail="This resume has already been uploaded"
-        )
-    # Generate recommendations
+        raise HTTPException(409, "This resume has already been uploaded")
+
     recommendations = get_recommendations(
-        skills=resume_data.get("skills", []),
-        education=resume_data.get("education", []),
-        work_experience=resume_data.get("work_experience", [])
+        skills=skills,
+        education=education,
+        work_experience=work_experience
     )
 
-    # Add explanations
-    for role in recommendations.get("recommended_roles", []):
+    roles = recommendations.get("recommended_roles", [])
+
+    for role in roles:
         role["detailed_explanation"] = explain_role(role["title"])
 
-    return recommendations
+    job_skill_lists = []
+
+    for role in roles:
+        role_skills = extract_job_skills(role["title"])
+        job_skill_lists.append(role_skills)
+
+    if job_skill_lists:
+        aggregated_skills = aggregate_job_skills(job_skill_lists)
+        skill_gap = compute_skill_gap(skills, aggregated_skills)
+        learning_path = rank_skills(skill_gap, len(job_skill_lists))
+    else:
+        learning_path = {
+            "core": [],
+            "important": [],
+            "optional": []
+        }
+
+    return {
+        "resume_id": saved_resume.id,
+        "recommendations": roles,
+        "learning_path": learning_path
+    }
 

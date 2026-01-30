@@ -1,5 +1,4 @@
-# backend/app/db/models.py
-from sqlalchemy import Column, Integer, String, Text, JSON, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, JSON, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 
@@ -42,3 +41,18 @@ class WorkExperienceDB(Base):
 
     resume = relationship("ResumeDB", back_populates="work_experience")
 
+class JobRole(Base):
+    __tablename__ = "job_roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, unique=True, index=True, nullable=False)
+    skills = Column(JSON, nullable=False)
+
+class SkillGapResult(Base):
+    __tablename__ = "skill_gaps"
+
+    id = Column(Integer, primary_key=True)
+    resume_id = Column(Integer, index=True)
+    core_skills = Column(JSON)
+    important_skills = Column(JSON)
+    optional_skills = Column(JSON)

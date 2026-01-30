@@ -2,6 +2,8 @@ from sqlalchemy.orm import Session
 from app.db.models import ResumeDB, EducationDB, WorkExperienceDB
 from app.utils.hash_utils import hash_resume
 from sqlalchemy.exc import IntegrityError
+from app.db.models import ResumeDB, JobRole, SkillGapResult
+
 
 def save_resume(db: Session, resume_data: dict) -> ResumeDB:
     content_hash = hash_resume(resume_data["raw_text"])
@@ -52,3 +54,29 @@ def get_resume(db: Session, resume_id: int) -> ResumeDB | None:
 def get_all_resumes(db: Session):
     return db.query(ResumeDB).all()
 
+def get_or_create_job_role(db: Session, title: str, skills: list[str]) -> JobRole:
+    role = db.query(JobRole).filter_by(title=title).first()
+    if role:
+        return role
+
+    role = JobRole(title=title, skills=skills)
+    db.add(role)
+    db.commit()
+    db.refresh(role)
+    return role
+
+def save_skill_gap(
+    db: Session,
+    resume_id: int,
+    ranked_skills: dict
+) -> SkillGapResult:
+    gap = SkillGapResult(
+        resume_id=resume_id,
+        core_skills=ranked_skills["core"],
+        important_skills=ranked_skills["important"],
+        optional_skills=ranked_skills["optional"]
+    )
+    db.add(gap)
+    db.commit()
+    db.refresh(gap)
+    return gap
