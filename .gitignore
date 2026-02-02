@@ -2,10 +2,7 @@
 .DS_Store
 __pycache__/
 *.pyc
-resumeparser.py
-greenhouseinjector.py
-lever.py
-main.py
 *.pdf
 *.docx
 venv/
+resumes.db
