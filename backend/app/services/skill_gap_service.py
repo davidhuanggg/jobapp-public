@@ -29,3 +29,21 @@ def rank_skills(skill_gaps: dict, total_jobs: int):
 
     return ranked
 
+def build_learning_path_for_role(resume_skills, role_skills):
+    resume_set = {s.lower() for s in resume_skills}
+
+    missing = [
+        s.lower() for s in role_skills
+        if s.lower() not in resume_set
+    ]
+
+    if not missing:
+        return {"core": [], "important": [], "optional": []}
+
+    n = len(missing)
+
+    return {
+        "core": missing[: max(1, n // 3)],
+        "important": missing[max(1, n // 3): max(2, n // 3)],
+        "optional": missing[max(2, n // 3):]
+    }
