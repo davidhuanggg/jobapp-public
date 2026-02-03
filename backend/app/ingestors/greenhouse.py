@@ -60,4 +60,3 @@ def normalize_greenhouse_job(raw: dict, company: str) -> dict:
 def ingest_company(company: str) -> list[dict]:
     raw_jobs = fetch_greenhouse_jobs(company)
     return [normalize_greenhouse_job(j, company) for j in raw_jobs]
-
