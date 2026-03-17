@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+sqlalchemy
+alembic
+python-multipart
+pydantic
+python-dotenv
+groq
+requests
+httpx
+beautifulsoup4
+lxml
+pytest
+responses
+pdfminer
+pdfminer.six
+python-docx
