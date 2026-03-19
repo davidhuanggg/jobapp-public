@@ -12,8 +12,14 @@ from app.services.skill_gap_service import (
     rank_skills,
     build_learning_path_for_role
 )
+from app.services.job_matching_service import find_matching_jobs
+from pydantic import BaseModel
 
 router = APIRouter()
+
+
+class MatchJobsRequest(BaseModel):
+    role_titles: list[str]
 
 # Dependency to get DB session
 def get_db():
@@ -69,9 +75,31 @@ async def parse_and_recommend(
         # Add explanation
         role["detailed_explanation"] = explain_role(role_title)
 
+    # Match recommendations to real jobs (job board APIs + official company career pages)
+    matching = find_matching_jobs(
+        roles,
+        jobs_per_role=10,
+        include_company_jobs=True,
+    )
+    for role in roles:
+        role["matching_jobs"] = matching["by_role"].get(role["title"], [])
+
     return {
         "resume_id": saved_resume.id,
         "recommendations": roles,
-        "learning_paths": learning_paths
+        "learning_paths": learning_paths,
+        "matching_jobs_sources": matching["sources_used"],
     }
+
+
+@router.post("/jobs/match")
+async def match_jobs_to_roles(body: MatchJobsRequest):
+    """
+    Find real job postings that match the given role titles.
+    Uses job board APIs (e.g. Adzuna) and official company career pages (Greenhouse, Lever).
+    """
+    if not body.role_titles:
+        return {"by_role": {}, "sources_used": []}
+    roles = [{"title": t} for t in body.role_titles]
+    return find_matching_jobs(roles, jobs_per_role=15, include_company_jobs=True)
 
