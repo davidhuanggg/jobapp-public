@@ -13,6 +13,7 @@ from app.services.skill_gap_service import (
     build_learning_path_for_role
 )
 from app.services.job_service import match_role_titles_to_jobs
+from app.services.learning_resource_service import build_learning_resources
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -20,6 +21,12 @@ router = APIRouter()
 
 class MatchJobsRequest(BaseModel):
     resume_id: int | None = None
+    role_titles: list[str] | None = None
+
+
+class LearningResourcesRequest(BaseModel):
+    """Strict: must match a resume row from your own `/parse-and-recommend` flow."""
+    resume_id: int
     role_titles: list[str] | None = None
 
 # Dependency to get DB session
@@ -79,7 +86,7 @@ async def parse_and_recommend(
     return {
         "resume_id": saved_resume.id,
         "recommendations": roles,
-        "learning_paths": learning_paths
+        "learning_paths": learning_paths,
     }
 
 
@@ -130,4 +137,49 @@ async def match_jobs_to_roles(body: MatchJobsRequest, db: Session = Depends(get_
         country="us",
         candidate_skills=resume_skills,
     )
+
+
+@router.post("/learning-resources")
+async def learning_resources(body: LearningResourcesRequest, db: Session = Depends(get_db)):
+    """
+    Return learning resources for exactly one saved resume.
+
+    Strict behavior: if `resume_id` does not exist, returns 404. No fallback to
+    other rows (avoids cross-user leakage in shared DB). For real multi-tenant
+    isolation, add auth and tie resumes to `user_id` / session.
+    """
+    resume = get_resume(db, body.resume_id)
+    if not resume:
+        raise HTTPException(404, "Resume not found")
+
+    resume_skills = resume.skills or []
+    if not resume_skills:
+        return {"learning_resources": {}}
+
+    role_titles: list[str] = body.role_titles or []
+    if len(role_titles) == 0:
+        education = [
+            {"degree": e.degree, "field": e.field, "institution": e.university}
+            for e in (resume.education or [])
+        ]
+        work_experience = [
+            {"company": w.company, "title": w.position, "duration": w.duration}
+            for w in (resume.work_experience or [])
+        ]
+        recommendations = get_recommendations(
+            skills=resume_skills,
+            education=education,
+            work_experience=work_experience,
+        )
+        role_titles = [r.get("title") for r in recommendations.get("recommended_roles", []) if r.get("title")]
+
+    learning_paths: dict = {}
+    for role_title in role_titles:
+        role_skills = extract_job_skills(role_title)
+        learning_paths[role_title] = build_learning_path_for_role(
+            resume_skills=resume_skills,
+            role_skills=role_skills,
+        )
+
+    return {"learning_resources": build_learning_resources(learning_paths)}
 
