@@ -116,6 +116,7 @@ JSEARCH_URL = f"https://{JSEARCH_HOST}/search"
 
 def _search_jsearch(
     query: str,
+    country: str | None = None,
     page: int = 1,
     num_pages: int = 1,
 ) -> list[dict[str, Any]]:
@@ -126,6 +127,9 @@ def _search_jsearch(
         "page": str(page),
         "num_pages": str(num_pages),
     }
+    if country:
+        # JSearch expects country code (e.g. "us")
+        params["country"] = country.strip().lower()
     headers = {
         "X-RapidAPI-Key": RAPIDAPI_KEY,
         "X-RapidAPI-Host": JSEARCH_HOST,
@@ -200,7 +204,7 @@ def search_jobs(
             _search_adzuna(query, country=country, results_per_page=results_per_page, page=page)
         )
     if "jsearch" in to_use:
-        all_jobs.extend(_search_jsearch(query, page=page, num_pages=1))
+        all_jobs.extend(_search_jsearch(query, country=country, page=page, num_pages=1))
 
     # Dedupe by (source, job_id) then by source_url as fallback
     seen: set[str] = set()

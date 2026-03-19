@@ -62,19 +62,27 @@ def find_matching_jobs(
     role_titles = [r.get("title", "").strip() for r in recommended_roles if r.get("title")]
     by_role: dict[str, list[dict[str, Any]]] = {t: [] for t in role_titles}
     sources_used: list[str] = []
+    candidate_official_urls: set[str] = set()
 
     # Job board APIs: one search per role title (uses all enabled providers)
     for title in role_titles:
-        jobs = job_board_search(query=title, results_per_page=jobs_per_role)
+        jobs = job_board_search(query=title, results_per_page=jobs_per_role, country="us")
         for j in jobs:
             src = j.get("source")
             if src and src not in sources_used:
                 sources_used.append(src)
             by_role[title].append(j)
+            u = j.get("source_url") or ""
+            if u:
+                candidate_official_urls.add(u)
 
     # Official company career pages
     if include_company_jobs:
-        company_jobs = fetch_company_jobs(companies=company_list)
+        company_jobs = fetch_company_jobs(
+            companies=company_list,
+            urls=list(candidate_official_urls),
+            max_boards=20,
+        )
         if company_jobs:
             sources_used.append("company_careers")
         matched = _match_company_jobs_to_roles(company_jobs, role_titles)
