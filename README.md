@@ -42,9 +42,9 @@ the API will be available at:
 http://127.0.0.1:8000
 swagger UI: http://127.0.0.1:8000/docs
 
-use the POST `/parse-and-recommend` endpoint: upload a file (pdf, docx), then click Execute. The response includes `recommendations` with a `matching_jobs` array per role (from job boards and company career pages).
+use the POST `/parse-and-recommend` endpoint: upload a file (pdf, docx), then click Execute. The response includes `recommendations` and `learning_paths`.
 
-To only fetch matching jobs for role titles without a resume, use POST `/jobs/match` with body `{"role_titles": ["Backend Engineer", "Data Scientist"]}`.
+To fetch matching jobs for role titles without a resume, use POST `/jobs/match` with body `{"role_titles": ["Backend Engineer", "Data Scientist"]}`.
 
 **Job board APIs (optional):**
 - **Adzuna**: Free, one aggregator. Good default if you want zero cost.
