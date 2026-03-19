@@ -6,21 +6,35 @@ from app.db.models import ResumeDB, JobRole, SkillGapResult
 
 
 def save_resume(db: Session, resume_data: dict) -> ResumeDB:
+    """
+    Save a structured resume with education & work experience.
+
+    If the *same resume content* is uploaded again (same content_hash), we
+    return the existing ResumeDB row instead of inserting a duplicate.
+    """
     content_hash = hash_resume(resume_data["raw_text"])
-    """Save a structured resume with education & work experience"""
+
+    existing = db.query(ResumeDB).filter(ResumeDB.content_hash == content_hash).first()
+    if existing:
+        return existing
+
     resume = ResumeDB(
         raw_text=resume_data.get("raw_text", ""),
         name=resume_data.get("name", ""),
         email=resume_data.get("contact", {}).get("email", ""),
         phone=resume_data.get("contact", {}).get("phone", ""),
         skills=resume_data.get("skills", []),
-        content_hash=content_hash
+        content_hash=content_hash,
     )
     db.add(resume)
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
+        # Handle race conditions or edge cases where another request inserted the same hash.
+        existing = db.query(ResumeDB).filter(ResumeDB.content_hash == content_hash).first()
+        if existing:
+            return existing
         raise ValueError("Duplicate resume detected")
 
     for edu in resume_data.get("education", []):
@@ -28,7 +42,7 @@ def save_resume(db: Session, resume_data: dict) -> ResumeDB:
             resume_id=resume.id,
             degree=edu.get("degree", ""),
             field=edu.get("field", ""),
-            university=edu.get("university", "")
+            university=edu.get("university", ""),
         )
         resume.education.append(edu_obj)
         db.add(edu_obj)
@@ -38,7 +52,7 @@ def save_resume(db: Session, resume_data: dict) -> ResumeDB:
             resume_id=resume.id,
             company=exp.get("company", ""),
             position=exp.get("position", ""),
-            duration=exp.get("duration", "")
+            duration=exp.get("duration", ""),
         )
         resume.work_experience.append(exp_obj)
         db.add(exp_obj)
