@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.services.extractor_service import extract_resume_data
 from app.services.recommendation_service import get_recommendations, explain_role
-from app.db.crud import save_resume
+from app.db.crud import save_resume, get_resume
 from app.db.database import SessionLocal
 from app.models.resume_models import RecommendationResponse
 from app.services.job_skill_service import extract_job_skills
@@ -12,8 +12,15 @@ from app.services.skill_gap_service import (
     rank_skills,
     build_learning_path_for_role
 )
+from app.services.job_service import match_role_titles_to_jobs
+from pydantic import BaseModel
 
 router = APIRouter()
+
+
+class MatchJobsRequest(BaseModel):
+    resume_id: int | None = None
+    role_titles: list[str] | None = None
 
 # Dependency to get DB session
 def get_db():
@@ -74,4 +81,53 @@ async def parse_and_recommend(
         "recommendations": roles,
         "learning_paths": learning_paths
     }
+
+
+@router.post("/jobs/match")
+async def match_jobs_to_roles(body: MatchJobsRequest, db: Session = Depends(get_db)):
+    """
+    Find real job postings that match the given role titles.
+    Uses job board APIs (e.g. Adzuna) and official company career pages (Greenhouse, Lever).
+    """
+    if not body.resume_id and (not body.role_titles or len(body.role_titles) == 0):
+        raise HTTPException(400, "Provide either `resume_id` or `role_titles`.")
+
+    resume_skills = None
+    role_titles: list[str] = body.role_titles or []
+
+    if body.resume_id:
+        resume = get_resume(db, body.resume_id)
+        if not resume:
+            raise HTTPException(404, "Resume not found")
+        resume_skills = resume.skills or []
+
+        # If role titles aren't provided, generate them from the saved resume.
+        if len(role_titles) == 0:
+            # Build education/work-experience lists from stored DB relationships.
+            education = [
+                {"degree": e.degree, "field": e.field, "institution": e.university}
+                for e in (resume.education or [])
+            ]
+            work_experience = [
+                {"company": w.company, "title": w.position, "duration": w.duration}
+                for w in (resume.work_experience or [])
+            ]
+
+            recommendations = get_recommendations(
+                skills=resume_skills,
+                education=education,
+                work_experience=work_experience,
+            )
+            role_titles = [r.get("title") for r in recommendations.get("recommended_roles", []) if r.get("title")]
+
+    if len(role_titles) == 0:
+        return {"by_role": {}, "sources_used": []}
+
+    return match_role_titles_to_jobs(
+        role_titles,
+        jobs_per_role=15,
+        include_company_jobs=True,
+        country="us",
+        candidate_skills=resume_skills,
+    )
 

@@ -20,15 +20,16 @@ export default function ResumeUpload({ onResumeParsed }) {
     formData.append("file", file);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/parse-resume", {
+      const res = await fetch("http://127.0.0.1:8000/parse-and-recommend", {
         method: "POST",
         body: formData,
       });
 
-      if (!res.ok) throw new Error("Failed to parse resume");
+      if (!res.ok) throw new Error("Failed to parse and recommend");
 
-      const parsedResume = await res.json();
-      onResumeParsed(parsedResume);
+      // Backend returns: { resume_id, recommendations, learning_paths, matching_jobs_sources, ... }
+      const data = await res.json();
+      onResumeParsed(data);
     } catch (err) {
       console.error(err);
       setError(err.message);
