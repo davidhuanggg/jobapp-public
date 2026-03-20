@@ -1,4 +1,5 @@
 import json
+import re
 from groq import Groq
 from dotenv import load_dotenv
 import os
@@ -6,6 +7,24 @@ import os
 load_dotenv()
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+
+def _parse_skills_json(content: str) -> list[str]:
+    """Tolerate markdown or extra text around JSON."""
+    if not content:
+        return []
+    match = re.search(r"\{.*\}", content, re.DOTALL)
+    if not match:
+        return []
+    try:
+        data = json.loads(match.group())
+        skills = data.get("skills")
+        if not isinstance(skills, list):
+            return []
+        return [str(s).strip() for s in skills if str(s).strip()]
+    except json.JSONDecodeError:
+        return []
+
 
 def extract_job_skills(role_title: str) -> list[str]:
     prompt = f"""
@@ -28,5 +47,5 @@ Format:
         max_tokens=300,
     )
 
-    return json.loads(response.choices[0].message.content)["skills"]
+    return _parse_skills_json(response.choices[0].message.content or "")
 

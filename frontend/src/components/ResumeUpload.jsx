@@ -27,7 +27,6 @@ export default function ResumeUpload({ onResumeParsed }) {
 
       if (!res.ok) throw new Error("Failed to parse and recommend");
 
-      // Backend returns: { resume_id, recommendations, learning_paths, matching_jobs_sources, ... }
       const data = await res.json();
       onResumeParsed(data);
     } catch (err) {
@@ -49,4 +48,3 @@ export default function ResumeUpload({ onResumeParsed }) {
     </div>
   );
 }
-
