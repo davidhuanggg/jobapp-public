@@ -1,0 +1,4 @@
+# Optional: semantic skill matching (same-meaning phrases / acronyms).
+# pip install -r requirements-embeddings.txt
+# Then set SKILL_USE_EMBEDDINGS=1
+sentence-transformers>=2.2.0

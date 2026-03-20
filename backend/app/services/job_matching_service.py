@@ -7,6 +7,7 @@ from typing import Any
 from app.services.job_board_client import search_jobs as job_board_search
 from app.services.company_jobs_client import fetch_company_jobs
 from app.ingestors.utils import extract_skills_from_html
+from app.services.skill_normalize import build_dynamic_cluster_map, normalize_skill_for_match
 
 
 def _normalize_for_match(text: str) -> str:
@@ -91,10 +92,6 @@ def find_matching_jobs(
     by_role: dict[str, list[dict[str, Any]]] = {t: [] for t in role_titles}
     sources_used: list[str] = []
     candidate_official_urls: set[str] = set()
-    candidate_skill_set: set[str] | None = (
-        {s.strip().lower() for s in candidate_skills if s and s.strip()} if candidate_skills else None
-    )
-
     # Job board APIs: one search per role title (uses all enabled providers)
     for title in role_titles:
         jobs = job_board_search(
@@ -142,8 +139,8 @@ def find_matching_jobs(
                 unique.append(j)
         by_role[title] = unique
 
-    # If we have resume skills, filter/rank by skill overlap to make results more relevant.
-    if candidate_skill_set:
+    # If we have resume skills, filter/rank by skill overlap (dynamic fuzzy cluster per job).
+    if candidate_skills:
         for title in list(by_role.keys()):
             scored: list[tuple[int, dict[str, Any]]] = []
             for job in by_role[title]:
@@ -151,14 +148,27 @@ def find_matching_jobs(
                 if not required:
                     required = extract_skills_from_html(job.get("description_snippet") or "")
 
-                required_set = {s.strip().lower() for s in required if s and s.strip()}
-                score = len(candidate_skill_set & required_set)
+                cmap = build_dynamic_cluster_map([*candidate_skills, *required])
+                cand_set = {
+                    normalize_skill_for_match(s, cmap)
+                    for s in candidate_skills
+                    if normalize_skill_for_match(s, cmap)
+                }
+                req_set = {
+                    normalize_skill_for_match(s, cmap)
+                    for s in required
+                    if normalize_skill_for_match(s, cmap)
+                }
+                score = len(cand_set & req_set)
                 job["match_score"] = score
                 scored.append((score, job))
 
             scored.sort(key=lambda x: x[0], reverse=True)
             # Keep only jobs that overlap skills, but if none overlap, keep top matches anyway.
             positive = [job for score, job in scored if score > 0]
-            by_role[title] = (positive or [job for _, job in scored])[:jobs_per_role]
+            chosen = (positive or [job for _, job in scored])[:jobs_per_role]
+            for job in chosen:
+                job.pop("match_score", None)
+            by_role[title] = chosen
 
     return {"by_role": by_role, "sources_used": list(dict.fromkeys(sources_used))}

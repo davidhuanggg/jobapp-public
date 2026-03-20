@@ -10,10 +10,13 @@ from app.services.skill_gap_service import (
     aggregate_job_skills,
     compute_skill_gap,
     rank_skills,
-    build_learning_path_for_role
+    build_learning_path_for_role,
+    build_skill_role_relevance,
 )
+from app.services.skill_normalize import build_dynamic_cluster_map, collect_strings_for_clustering
 from app.services.job_service import match_role_titles_to_jobs
 from app.services.learning_resource_service import build_learning_resources
+from app.services.roadmap_service import build_focused_role_roadmap
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -26,6 +29,7 @@ class MatchJobsRequest(BaseModel):
 
 class LearningResourcesRequest(BaseModel):
     """Strict: must match a resume row from your own `/parse-and-recommend` flow."""
+
     resume_id: int
     role_titles: list[str] | None = None
 
@@ -40,7 +44,7 @@ def get_db():
 @router.post("/parse-and-recommend")
 async def parse_and_recommend(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     resume_data = await extract_resume_data(file)
     if not resume_data:
@@ -66,27 +70,39 @@ async def parse_and_recommend(
 
     roles = recommendations.get("recommended_roles", [])
 
-    learning_paths = {}
-
+    # One extract_job_skills call per recommended role (used for paths + cross-role demand)
+    role_skill_rows: list[tuple[str, list[str]]] = []
     for role in roles:
         role_title = role["title"]
-
-        # Extract skills required for THIS role
         role_skills = extract_job_skills(role_title)
+        role_skill_rows.append((role_title, role_skills))
 
-        # Compute gap vs resume
+    all_skill_strings = collect_strings_for_clustering(resume_skills, role_skill_rows)
+    cluster_map = build_dynamic_cluster_map(all_skill_strings)
+
+    learning_paths: dict = {}
+    title_to_skills = dict(role_skill_rows)
+    for role in roles:
+        role_title = role["title"]
+        role_skills = title_to_skills[role_title]
         learning_paths[role_title] = build_learning_path_for_role(
             resume_skills=resume_skills,
-            role_skills=role_skills
+            role_skills=role_skills,
+            cluster_map=cluster_map,
         )
-
-        # Add explanation
         role["detailed_explanation"] = explain_role(role_title)
+
+    skill_demand = build_skill_role_relevance(
+        role_skill_rows,
+        resume_skills=resume_skills,
+        cluster_map=cluster_map,
+    )
 
     return {
         "resume_id": saved_resume.id,
         "recommendations": roles,
         "learning_paths": learning_paths,
+        "skill_demand_across_recommended_roles": skill_demand,
     }
 
 
@@ -156,7 +172,8 @@ async def learning_resources(body: LearningResourcesRequest, db: Session = Depen
     if not resume_skills:
         return {"learning_resources": {}}
 
-    role_titles: list[str] = body.role_titles or []
+    explicit_role_titles = body.role_titles
+    role_titles: list[str] = list(explicit_role_titles or [])
     if len(role_titles) == 0:
         education = [
             {"degree": e.degree, "field": e.field, "institution": e.university}
@@ -173,13 +190,37 @@ async def learning_resources(body: LearningResourcesRequest, db: Session = Depen
         )
         role_titles = [r.get("title") for r in recommendations.get("recommended_roles", []) if r.get("title")]
 
-    learning_paths: dict = {}
+    role_skill_rows: list[tuple[str, list[str]]] = []
     for role_title in role_titles:
-        role_skills = extract_job_skills(role_title)
+        role_skill_rows.append((role_title, extract_job_skills(role_title)))
+
+    cluster_strings = collect_strings_for_clustering(resume_skills, role_skill_rows)
+    cluster_map = build_dynamic_cluster_map(cluster_strings)
+
+    learning_paths: dict = {}
+    for role_title, role_skills in role_skill_rows:
         learning_paths[role_title] = build_learning_path_for_role(
             resume_skills=resume_skills,
             role_skills=role_skills,
+            cluster_map=cluster_map,
         )
 
-    return {"learning_resources": build_learning_resources(learning_paths)}
+    out: dict = {
+        "learning_resources": build_learning_resources(
+            learning_paths,
+            resume_skills=resume_skills,
+            personalize=True,
+            cluster_map=cluster_map,
+        )
+    }
+    # Ordered gap roadmap only when the client explicitly asks for exactly one role
+    if explicit_role_titles is not None and len(explicit_role_titles) == 1:
+        only = explicit_role_titles[0]
+        if only in learning_paths:
+            out["focused_role_roadmap"] = build_focused_role_roadmap(
+                only,
+                resume_skills,
+                learning_paths[only],
+            )
+    return out
 
