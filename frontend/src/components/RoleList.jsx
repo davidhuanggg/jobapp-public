@@ -6,7 +6,7 @@ export default function RoleList({ roles }) {
   return (
     <section className="panel">
       <h2>Recommended Roles</h2>
-      <p className="muted">Based on your current resume profile.</p>
+      <p className="muted">Suggested from your resume profile (LLM + heuristics).</p>
       <ul className="list">
         {roles.map((role, i) => (
           <li key={`${role.title}-${i}`} className="list-item">
