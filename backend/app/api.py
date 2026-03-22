@@ -114,7 +114,7 @@ async def match_jobs_to_roles(body: MatchJobsRequest, db: Session = Depends(get_
     Uses job board APIs (e.g. Adzuna) and official company career pages (Greenhouse, Lever).
 
     When ``resume_id`` is provided, each job includes **only** ``requirement_match_pct``
-    (0–100) for resume-vs-listing match; results are **sorted by that value, highest first**.
+    (0–100). Jobs with **0%** are **omitted**; the rest are **sorted highest first**.
     """
     if not body.resume_id and (not body.role_titles or len(body.role_titles) == 0):
         raise HTTPException(400, "Provide either `resume_id` or `role_titles`.")

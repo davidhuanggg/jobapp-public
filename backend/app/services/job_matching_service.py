@@ -138,7 +138,7 @@ def find_matching_jobs(
                 unique.append(j)
         by_role[title] = unique
 
-    # If we have resume skills: attach only requirement_match_pct and sort high → low.
+    # If we have resume skills: attach requirement_match_pct, drop 0%, sort high → low.
     if candidate_skills:
         for title in list(by_role.keys()):
             jobs_list = by_role[title]
@@ -156,6 +156,7 @@ def find_matching_jobs(
                 job["requirement_match_pct"] = 0 if pct is None else int(pct)
 
             jobs_list.sort(key=lambda j: j.get("requirement_match_pct", 0), reverse=True)
-            by_role[title] = jobs_list[:jobs_per_role]
+            positive = [j for j in jobs_list if j.get("requirement_match_pct", 0) > 0]
+            by_role[title] = positive[:jobs_per_role]
 
     return {"by_role": by_role, "sources_used": list(dict.fromkeys(sources_used))}

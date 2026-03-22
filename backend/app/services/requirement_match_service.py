@@ -128,7 +128,7 @@ def resume_to_job_match_stats(resume_skills: list[str], job: dict[str, Any]) -> 
 
     required = [x for x in (job.get("required_skills") or []) if x and str(x).strip()]
     if not required:
-        required = extract_job_match_signals(desc, title)
+        required = extract_job_match_signals(desc, title, resume_skills=resume_skills)
 
     stats = resume_to_requirement_stats(resume_skills, required)
     if stats["has_requirements"]:
