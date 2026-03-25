@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.db.database import Base, engine
+from app.db.database import Base, engine, _run_migrations
 from app.api import router as api_router
 from app.db import models  # ensures all models are registered
 
@@ -19,6 +19,7 @@ app.add_middleware(
 
 app.include_router(api_router)
 
-# Create all tables
+# Create all tables, then apply any additive column migrations.
 Base.metadata.create_all(bind=engine)
+_run_migrations()
 

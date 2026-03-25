@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, JSON, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, JSON, Float, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 
@@ -11,6 +11,9 @@ class ResumeDB(Base):
     phone = Column(String, default="")
     raw_text = Column(Text, nullable=False)
     skills = Column(JSON, default=[])
+    years_of_experience = Column(Float, nullable=True)
+    career_level = Column(String, nullable=True)   # apprenticeship|intern|entry|mid|senior
+    is_student = Column(Boolean, default=False)
 
     # Relationships
     education = relationship("EducationDB", back_populates="resume", cascade="all, delete-orphan")

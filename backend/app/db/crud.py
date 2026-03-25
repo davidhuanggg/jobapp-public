@@ -25,6 +25,9 @@ def save_resume(db: Session, resume_data: dict) -> ResumeDB:
         phone=resume_data.get("contact", {}).get("phone", ""),
         skills=resume_data.get("skills", []),
         content_hash=content_hash,
+        years_of_experience=resume_data.get("years_of_experience"),
+        career_level=resume_data.get("career_level"),
+        is_student=resume_data.get("is_student", False),
     )
     db.add(resume)
     try:

@@ -26,6 +26,274 @@ _groq_client: Groq | None = Groq(api_key=_GROQ_KEY) if _GROQ_KEY else None
 _GROQ_MODEL = "llama-3.1-8b-instant"
 
 
+# ---------------------------------------------------------------------------
+# Certification catalog
+# Keys match the same canonical skill names used in RESOURCE_CATALOG below.
+# Each entry has: name, provider, url, cost, level (apprenticeship/intern/entry/mid/senior).
+# ---------------------------------------------------------------------------
+CERTIFICATION_CATALOG: dict[str, list[dict]] = {
+    "python": [
+        {
+            "name": "PCEP – Certified Entry-Level Python Programmer",
+            "provider": "Python Institute",
+            "url": "https://pythoninstitute.org/pcep",
+            "cost": "paid",
+            "level": "entry",
+        },
+        {
+            "name": "PCAP – Certified Associate in Python Programming",
+            "provider": "Python Institute",
+            "url": "https://pythoninstitute.org/pcap",
+            "cost": "paid",
+            "level": "mid",
+        },
+    ],
+    "sql": [
+        {
+            "name": "Microsoft Certified: Azure Data Fundamentals (DP-900)",
+            "provider": "Microsoft",
+            "url": "https://learn.microsoft.com/en-us/certifications/azure-data-fundamentals/",
+            "cost": "paid",
+            "level": "entry",
+        },
+    ],
+    "aws": [
+        {
+            "name": "AWS Certified Cloud Practitioner",
+            "provider": "AWS",
+            "url": "https://aws.amazon.com/certification/certified-cloud-practitioner/",
+            "cost": "paid",
+            "level": "entry",
+        },
+        {
+            "name": "AWS Certified Developer – Associate",
+            "provider": "AWS",
+            "url": "https://aws.amazon.com/certification/certified-developer-associate/",
+            "cost": "paid",
+            "level": "mid",
+        },
+        {
+            "name": "AWS Certified Solutions Architect – Associate",
+            "provider": "AWS",
+            "url": "https://aws.amazon.com/certification/certified-solutions-architect-associate/",
+            "cost": "paid",
+            "level": "mid",
+        },
+    ],
+    "docker": [
+        {
+            "name": "Docker Certified Associate (DCA)",
+            "provider": "Mirantis",
+            "url": "https://training.mirantis.com/certification/dca-certification-exam/",
+            "cost": "paid",
+            "level": "mid",
+        },
+    ],
+    "kubernetes": [
+        {
+            "name": "Certified Kubernetes Application Developer (CKAD)",
+            "provider": "CNCF / Linux Foundation",
+            "url": "https://training.linuxfoundation.org/certification/certified-kubernetes-application-developer-ckad/",
+            "cost": "paid",
+            "level": "mid",
+        },
+        {
+            "name": "Certified Kubernetes Administrator (CKA)",
+            "provider": "CNCF / Linux Foundation",
+            "url": "https://training.linuxfoundation.org/certification/certified-kubernetes-administrator-cka/",
+            "cost": "paid",
+            "level": "senior",
+        },
+    ],
+    "machine learning": [
+        {
+            "name": "TensorFlow Developer Certificate",
+            "provider": "Google",
+            "url": "https://www.tensorflow.org/certificate",
+            "cost": "paid",
+            "level": "mid",
+        },
+        {
+            "name": "AWS Certified Machine Learning – Specialty",
+            "provider": "AWS",
+            "url": "https://aws.amazon.com/certification/certified-machine-learning-specialty/",
+            "cost": "paid",
+            "level": "senior",
+        },
+        {
+            "name": "Google Professional Machine Learning Engineer",
+            "provider": "Google Cloud",
+            "url": "https://cloud.google.com/certification/machine-learning-engineer",
+            "cost": "paid",
+            "level": "senior",
+        },
+    ],
+    "react": [
+        {
+            "name": "Meta Front-End Developer Professional Certificate",
+            "provider": "Meta / Coursera",
+            "url": "https://www.coursera.org/professional-certificates/meta-front-end-developer",
+            "cost": "paid",
+            "level": "entry",
+        },
+    ],
+    "data engineering": [
+        {
+            "name": "Databricks Certified Data Engineer Associate",
+            "provider": "Databricks",
+            "url": "https://www.databricks.com/learn/certification/data-engineer-associate",
+            "cost": "paid",
+            "level": "entry",
+        },
+        {
+            "name": "Google Professional Data Engineer",
+            "provider": "Google Cloud",
+            "url": "https://cloud.google.com/certification/data-engineer",
+            "cost": "paid",
+            "level": "mid",
+        },
+    ],
+    "databricks": [
+        {
+            "name": "Databricks Certified Data Engineer Associate",
+            "provider": "Databricks",
+            "url": "https://www.databricks.com/learn/certification/data-engineer-associate",
+            "cost": "paid",
+            "level": "entry",
+        },
+        {
+            "name": "Databricks Certified Machine Learning Associate",
+            "provider": "Databricks",
+            "url": "https://www.databricks.com/learn/certification/machine-learning-associate",
+            "cost": "paid",
+            "level": "entry",
+        },
+    ],
+    "tensorflow": [
+        {
+            "name": "TensorFlow Developer Certificate",
+            "provider": "Google",
+            "url": "https://www.tensorflow.org/certificate",
+            "cost": "paid",
+            "level": "mid",
+        },
+    ],
+    "cloud": [
+        {
+            "name": "Google Associate Cloud Engineer",
+            "provider": "Google Cloud",
+            "url": "https://cloud.google.com/certification/cloud-engineer",
+            "cost": "paid",
+            "level": "mid",
+        },
+        {
+            "name": "Microsoft Certified: Azure Fundamentals (AZ-900)",
+            "provider": "Microsoft",
+            "url": "https://learn.microsoft.com/en-us/certifications/azure-fundamentals/",
+            "cost": "paid",
+            "level": "entry",
+        },
+    ],
+    "fastapi": [
+        {
+            "name": "Python Web APIs with FastAPI (Coursera)",
+            "provider": "Coursera",
+            "url": "https://www.coursera.org/search?query=fastapi",
+            "cost": "free/paid",
+            "level": "entry",
+        },
+    ],
+}
+
+# Same canonical-key mapping as _CANONICAL_TO_CATALOG below
+_CANONICAL_TO_CERT: dict[str, str] = {
+    "python": "python",
+    "sql": "sql",
+    "postgresql": "sql",
+    "aws": "aws",
+    "docker": "docker",
+    "kubernetes": "kubernetes",
+    "machinelearning": "machine learning",
+    "react": "react",
+    "dataengineering": "data engineering",
+    "databricks": "databricks",
+    "tensorflow": "tensorflow",
+    "cloud": "cloud",
+    "fastapi": "fastapi",
+}
+
+# LEVEL_ORDER mirrors experience_level_service without creating a circular import.
+_LEVEL_ORDER: dict[str, int] = {
+    "apprenticeship": 0,
+    "intern": 1,
+    "entry": 2,
+    "mid": 3,
+    "senior": 4,
+}
+
+
+def get_certifications_for_role(
+    gap_skills: list[str],
+    *,
+    career_level: str | None = None,
+    cluster_map: dict[str, str] | None = None,
+    **_kwargs,  # absorb unused kwargs (e.g. role_title) for call-site compatibility
+) -> list[dict]:
+    """
+    Return a deduplicated, level-appropriate list of certifications for a single
+    role from the static CERTIFICATION_CATALOG.
+
+    Certifications more than one level above the candidate's career level are
+    excluded. Results are sorted closest-level-first.
+    """
+    if not gap_skills:
+        return []
+
+    candidate_rank: int | None = _LEVEL_ORDER.get(career_level) if career_level else None
+    seen_names: set[str] = set()
+    certs: list[dict] = []
+
+    for skill in gap_skills:
+        raw = (skill or "").strip()
+        if not raw:
+            continue
+        canon = normalize_skill_for_match(raw, cluster_map)
+        cat_key = _CANONICAL_TO_CERT.get(canon)
+        for cert in CERTIFICATION_CATALOG.get(cat_key or "", []):
+            name = cert.get("name", "")
+            if name in seen_names:
+                continue
+            if candidate_rank is not None:
+                cert_rank = _LEVEL_ORDER.get(cert.get("level", ""), 2)
+                if cert_rank > candidate_rank + 1:
+                    continue
+            seen_names.add(name)
+            certs.append({**cert, "relevant_skill": raw})
+
+    certs.sort(key=lambda c: abs(
+        _LEVEL_ORDER.get(c.get("level", ""), 2) - (candidate_rank if candidate_rank is not None else 2)
+    ))
+    return certs
+
+
+def get_certifications_for_all_roles(
+    roles_gap_skills: dict[str, list[str]],
+    *,
+    career_level: str | None = None,
+    cluster_map: dict[str, str] | None = None,
+) -> dict[str, list[dict]]:
+    """
+    Return certifications for all roles from the static CERTIFICATION_CATALOG.
+
+    ``roles_gap_skills`` maps role_title → gap skill list.
+    Returns a dict of the same shape.
+    """
+    return {
+        role: get_certifications_for_role(skills, career_level=career_level, cluster_map=cluster_map)
+        for role, skills in roles_gap_skills.items()
+    }
+
+
 # Curated starter catalog for common skills.
 # Expand this over time as you observe user demand.
 RESOURCE_CATALOG: dict[str, list[dict]] = {
@@ -322,6 +590,7 @@ def build_learning_resources(
     learning_paths: dict,
     *,
     resume_skills: list[str] | None = None,
+    career_level: str | None = None,
     personalize: bool = True,
     cluster_map: dict[str, str] | None = None,
 ) -> dict:
@@ -336,9 +605,17 @@ def build_learning_resources(
       "Role Name": {
         "core": [{"skill": "...", "resources": [...]}, ...],
         "important": [...],
-        "optional": [...]
+        "optional": [...],
+        "recommended_certifications": [
+          {"name": "...", "provider": "...", "url": "...", "cost": "...",
+           "level": "...", "relevant_skill": "..."},
+          ...
+        ]
       }
     }
+
+    ``career_level`` is the value stored during ``/parse-and-recommend`` and is
+    used to filter certifications to those appropriate for the candidate.
     """
     out: dict = {}
     rs = resume_skills or []
@@ -358,7 +635,7 @@ def build_learning_resources(
                 role, rs, gap_skills, cluster_map=cm
             )
 
-        role_out = {"core": [], "important": [], "optional": []}
+        role_out: dict = {"core": [], "important": [], "optional": []}
         for bucket in ("core", "important", "optional"):
             skills = buckets.get(bucket, []) if isinstance(buckets, dict) else []
             role_out[bucket] = []
@@ -372,6 +649,13 @@ def build_learning_resources(
                     else base
                 )
                 role_out[bucket].append({"skill": s, "resources": resources})
+
+        role_out["recommended_certifications"] = get_certifications_for_role(
+            gap_skills,
+            role_title=role,
+            career_level=career_level,
+            cluster_map=cm,
+        )
         out[role] = role_out
 
     return out

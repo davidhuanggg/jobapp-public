@@ -2,11 +2,13 @@
 Matches recommended roles to real job postings from job board APIs and official company career pages.
 """
 import re
+from datetime import date, datetime, timezone
 from typing import Any
 
 from app.services.job_board_client import search_jobs as job_board_search
 from app.services.company_jobs_client import fetch_company_jobs
 from app.services.requirement_match_service import resume_to_job_match_stats
+from app.services.experience_level_service import infer_job_level, level_compatible
 
 
 def _normalize_for_match(text: str) -> str:
@@ -75,6 +77,7 @@ def find_matching_jobs(
     company_list: list[tuple[str, str]] | None = None,
     country: str = "us",
     candidate_skills: list[str] | None = None,
+    candidate_level: str | None = None,
 ) -> dict[str, Any]:
     """
     For each recommended role (dict with "title"), find matching real jobs from:
@@ -125,7 +128,9 @@ def find_matching_jobs(
         for title, jobs in matched.items():
             by_role.setdefault(title, []).extend(jobs)
 
-    # Dedupe by job_id per role
+    # Dedupe by job_id per role, then drop stale listings (> 3 days old).
+    _today = datetime.now(tz=timezone.utc).date()
+    _MAX_DAYS = 3
     for title in by_role:
         seen: set[str] = set()
         unique: list[dict[str, Any]] = []
@@ -136,9 +141,46 @@ def find_matching_jobs(
                 unique.append(j)
             elif not jid:
                 unique.append(j)
-        by_role[title] = unique
+        # Compute days_since_posted and drop listings older than _MAX_DAYS.
+        fresh: list[dict[str, Any]] = []
+        for j in unique:
+            raw_date = j.get("posted_date")
+            if raw_date:
+                try:
+                    posted = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").date()
+                    days_ago = (_today - posted).days
+                    j["days_since_posted"] = days_ago
+                    if days_ago <= _MAX_DAYS:
+                        fresh.append(j)
+                except ValueError:
+                    j["days_since_posted"] = None
+                    fresh.append(j)   # unparseable date → keep
+            else:
+                j["days_since_posted"] = None
+                fresh.append(j)       # no date info → keep
+        by_role[title] = fresh
 
-    # If we have resume skills: attach requirement_match_pct, drop 0%, sort high → low.
+    # Attach job_level to every job (regardless of resume).
+    for title in list(by_role.keys()):
+        for job in by_role[title]:
+            level, min_yoe = infer_job_level(
+                job.get("description_snippet") or "",
+                job.get("title") or "",
+            )
+            job["job_level"] = level
+            if min_yoe is not None:
+                job["job_min_yoe"] = min_yoe
+
+    # Always apply level compatibility filter when we know the candidate's level.
+    # This runs regardless of whether resume skills are present.
+    if candidate_level:
+        for title in list(by_role.keys()):
+            by_role[title] = [
+                j for j in by_role[title]
+                if level_compatible(candidate_level, j.get("job_level"))
+            ]
+
+    # Score and sort by requirement match when resume skills are available.
     if candidate_skills:
         for title in list(by_role.keys()):
             jobs_list = by_role[title]
@@ -156,7 +198,6 @@ def find_matching_jobs(
                 job["requirement_match_pct"] = 0 if pct is None else int(pct)
 
             jobs_list.sort(key=lambda j: j.get("requirement_match_pct", 0), reverse=True)
-            positive = [j for j in jobs_list if j.get("requirement_match_pct", 0) > 0]
-            by_role[title] = positive[:jobs_per_role]
+            by_role[title] = jobs_list[:jobs_per_role]
 
     return {"by_role": by_role, "sources_used": list(dict.fromkeys(sources_used))}

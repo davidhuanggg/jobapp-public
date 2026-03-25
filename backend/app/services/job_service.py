@@ -19,6 +19,7 @@ def match_role_titles_to_jobs(
     include_company_jobs: bool = True,
     country: str = "us",
     candidate_skills: list[str] | None = None,
+    candidate_level: str | None = None,
 ) -> dict[str, Any]:
     if not role_titles:
         return {"by_role": {}, "sources_used": []}
@@ -30,5 +31,6 @@ def match_role_titles_to_jobs(
         include_company_jobs=include_company_jobs,
         country=country,
         candidate_skills=candidate_skills,
+        candidate_level=candidate_level,
     )
 
