@@ -51,7 +51,7 @@ To fetch learning resources in a dedicated API (separate from parse/recommend), 
 - `{"resume_id": 1, "role_titles": ["Backend Engineer", "Data Scientist"]}` — limit resources to those roles (no roadmap)
 - `{"resume_id": 1, "role_titles": ["Backend Engineer"]}` — **one** explicit title → same resources **plus** **`focused_role_roadmap`** (ordered gap steps; LLM order when `GROQ_API_KEY` is set, else heuristic)
 
-**Job match vs resume:** POST `/jobs/match` with **`resume_id`** adds **`requirement_match_pct`** (0–100) to each job and **sorts** listings by that value **descending**. Scoring uses the same internal signals as before (required skills, description/title tokens, or resume-in-listing fallback). Without `resume_id` / skills, that field is not set and order is unchanged.
+**Job match vs resume:** POST `/jobs/match` with **`resume_id`** adds **`requirement_match_pct`** (0–100), **drops jobs at 0%**, and **sorts** the rest **descending**. Without `resume_id` / skills, that field is not set, nothing is filtered by pct, and order is unchanged.
 
 If `resume_id` is wrong or stale, the API returns **404** (no fallback to another resume). For production multi-user apps, add auth and store a `user_id` on each resume so IDs cannot be guessed across users.
 
