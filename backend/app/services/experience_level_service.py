@@ -97,18 +97,26 @@ def infer_job_level(description: str, title: str = "") -> tuple[str | None, floa
     return None, None
 
 
+# Levels where filtering is currently active.
+# Mid and senior tiers are not yet fully validated, so candidates at those
+# levels bypass the filter and see all jobs until the upper tiers are ready.
+_ACTIVE_FILTER_LEVELS: frozenset[str] = frozenset({"apprenticeship", "intern", "entry"})
+
+
 def level_compatible(candidate_level: str | None, job_level: str | None) -> bool:
     """
     True when the job level is appropriate for the candidate.
 
-    Rule: job must be within 1 level of the candidate (either direction).
+    Filtering is currently scoped to entry-level candidates and below
+    (apprenticeship, intern, entry).  Mid and senior candidates bypass the
+    filter entirely until those tiers are fully validated.
 
-    - If candidate level is unknown, every job is kept (no basis to filter).
-    - If job level is unknown (no signals found), treat it as "mid" — the most
-      common unlabelled posting type — so entry-level candidates aren't shown
-      implicitly senior roles just because the posting omitted a level tag.
+    For active levels:
+    - Job must be within 1 level of the candidate (either direction).
+    - Unknown job level defaults to "mid" so entry-level candidates aren't
+      inadvertently shown senior roles that omitted a level tag.
     """
-    if not candidate_level:
+    if not candidate_level or candidate_level not in _ACTIVE_FILTER_LEVELS:
         return True
     _DEFAULT_JOB_LEVEL = "mid"
     effective_job_level = job_level or _DEFAULT_JOB_LEVEL

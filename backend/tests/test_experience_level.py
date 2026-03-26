@@ -84,25 +84,23 @@ class TestInferJobLevelYoE:
 # ---------------------------------------------------------------------------
 class TestLevelCompatible:
     @pytest.mark.parametrize("candidate,job,expected", [
-        # exact same level → always compatible
-        ("intern",        "intern",        True),
-        ("entry",         "entry",         True),
-        ("mid",           "mid",           True),
-        ("senior",        "senior",        True),
-        # one step up → compatible (stretch)
-        ("intern",        "entry",         True),
-        ("entry",         "mid",           True),
-        ("mid",           "senior",        True),
-        # one step down → compatible (over-qualified by 1)
-        ("entry",         "intern",        True),
-        ("mid",           "entry",         True),
-        ("senior",        "mid",           True),
-        # two or more steps apart → incompatible
-        ("intern",        "mid",           False),
-        ("intern",        "senior",        False),
-        ("entry",         "senior",        False),
-        ("senior",        "entry",         False),
-        ("senior",        "intern",        False),
+        # --- Active filter levels (apprenticeship / intern / entry) ---
+        ("intern",   "intern",   True),
+        ("entry",    "entry",    True),
+        ("intern",   "entry",    True),   # one step up → compatible
+        ("entry",    "mid",      True),   # one step up → compatible
+        ("entry",    "intern",   True),   # one step down → compatible
+        ("intern",   "mid",      False),  # two steps up → incompatible
+        ("intern",   "senior",   False),  # three steps up → incompatible
+        ("entry",    "senior",   False),  # two steps up → incompatible
+        # --- Mid / senior bypass filtering entirely (not yet active) ---
+        ("mid",      "mid",      True),
+        ("mid",      "senior",   True),
+        ("mid",      "entry",    True),
+        ("mid",      "intern",   True),   # would be incompatible once active
+        ("senior",   "senior",   True),
+        ("senior",   "entry",    True),
+        ("senior",   "intern",   True),   # would be incompatible once active
     ])
     def test_compatibility(self, candidate, job, expected):
         assert level_compatible(candidate, job) == expected
@@ -128,8 +126,6 @@ class TestLevelCompatible:
         assert level_compatible(None, None) is True
 
     def test_unknown_level_strings(self):
-        # Unknown strings fall back to "entry" rank (2) via LEVEL_ORDER.get default.
-        # "wizard" (→ 2) vs "mid" (→ 3): difference = 1 → compatible.
+        # Unknown candidate level is not in _ACTIVE_FILTER_LEVELS → bypass filter.
         assert level_compatible("wizard", "mid") is True
-        # "wizard" (→ 2) vs "senior" (→ 4): difference = 2 → incompatible.
-        assert level_compatible("wizard", "senior") is False
+        assert level_compatible("wizard", "senior") is True

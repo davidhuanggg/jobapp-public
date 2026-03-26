@@ -145,58 +145,38 @@ class TestInternCandidate:
 
 # ---------------------------------------------------------------------------
 # Mid-level candidate (parse-and-recommend → "mid")
+# Filtering is NOT yet active for mid — all jobs pass through.
 # ---------------------------------------------------------------------------
 class TestMidLevelCandidate:
     CANDIDATE = "mid"
 
-    def test_mid_job_is_included(self):
-        jobs = [_job("Software Engineer", "3+ years of experience required")]
+    def test_all_jobs_pass_through(self):
+        jobs = [
+            _job("Software Engineering Intern"),
+            _job("Junior Software Engineer"),
+            _job("Software Engineer", "3+ years of experience"),
+            _job("Senior Software Engineer"),
+        ]
         result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 1
-
-    def test_entry_job_is_included(self):
-        jobs = [_job("Junior Software Engineer")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 1
-
-    def test_senior_job_is_included(self):
-        jobs = [_job("Senior Software Engineer")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 1
-
-    def test_intern_job_is_excluded(self):
-        # 2 levels below mid → incompatible
-        jobs = [_job("Software Engineering Intern")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 0
+        assert len(result) == 4
 
 
 # ---------------------------------------------------------------------------
 # Senior candidate (parse-and-recommend → "senior")
+# Filtering is NOT yet active for senior — all jobs pass through.
 # ---------------------------------------------------------------------------
 class TestSeniorCandidate:
     CANDIDATE = "senior"
 
-    def test_senior_job_is_included(self):
-        jobs = [_job("Senior Software Engineer")]
+    def test_all_jobs_pass_through(self):
+        jobs = [
+            _job("Software Engineering Intern"),
+            _job("Junior Software Engineer"),
+            _job("Software Engineer", "2+ years of experience"),
+            _job("Senior Software Engineer"),
+        ]
         result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 1
-
-    def test_mid_job_is_included(self):
-        jobs = [_job("Software Engineer", "2+ years of experience")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 1
-
-    def test_entry_job_is_excluded(self):
-        # 2 levels below senior → incompatible
-        jobs = [_job("Junior Software Engineer")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 0
-
-    def test_intern_job_is_excluded(self):
-        jobs = [_job("Software Engineering Intern")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 0
+        assert len(result) == 4
 
 
 # ---------------------------------------------------------------------------
