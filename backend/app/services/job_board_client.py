@@ -15,8 +15,10 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Resolve .env relative to this file so it works regardless of launch CWD.
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env", override=False)
 
 # ---------------------------------------------------------------------------
 # Normalized job shape (all providers map to this)
@@ -127,6 +129,7 @@ def _search_jsearch(
         "query": query.strip(),
         "page": str(page),
         "num_pages": str(num_pages),
+        "date_posted": "week",   # pre-filter at source; our local 3-day window refines further
     }
     if country:
         # JSearch expects country code (e.g. "us")
@@ -140,17 +143,28 @@ def _search_jsearch(
         resp.raise_for_status()
         data = resp.json() or {}
         results = data.get("data") or []
-    except Exception:
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("JSearch request failed: %s", exc)
         return []
     out = []
     for j in results:
         emp = j.get("employer_name") or "Unknown"
-        loc = j.get("job_city") or j.get("job_country") or "Unknown"
-        if isinstance(loc, str):
-            location = loc
-        else:
-            location = (j.get("job_city") or "") + ", " + (j.get("job_country") or "") or "Unknown"
+        city = j.get("job_city") or ""
+        country = j.get("job_country") or ""
+        location = ", ".join(filter(None, [city, country])) or "Unknown"
+
         job_id = j.get("job_id") or j.get("job_apply_link") or ""
+
+        # Structured skills list — this is the primary signal for requirement matching.
+        raw_skills = j.get("job_required_skills") or []
+        required_skills = [s for s in raw_skills if isinstance(s, str) and s.strip()] or None
+
+        # Pull key highlights out of job_highlights if present.
+        highlights = j.get("job_highlights") or {}
+        qualifications = highlights.get("Qualifications") or []
+        responsibilities = highlights.get("Responsibilities") or []
+
         out.append(
             _normalized_job(
                 job_id=f"jsearch_{job_id[:80]}" if job_id else "",
@@ -163,6 +177,12 @@ def _search_jsearch(
                 salary_min=j.get("job_min_salary"),
                 salary_max=j.get("job_max_salary"),
                 posted_date=(j.get("job_posted_at_datetime_utc") or "")[:10] if j.get("job_posted_at_datetime_utc") else None,
+                # JSearch-specific enrichment fields
+                required_skills=required_skills,
+                employment_type=j.get("job_employment_type"),
+                is_remote=j.get("job_is_remote"),
+                qualifications=qualifications if qualifications else None,
+                responsibilities=responsibilities if responsibilities else None,
             )
         )
     return out
