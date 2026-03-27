@@ -85,8 +85,10 @@ def _search_adzuna(
         "results_per_page": min(results_per_page, 50),
         "content-type": "application/json",
     }
+    _log.info("Adzuna calling API for query=%r url=%s", query, url)
     try:
-        resp = requests.get(url, params=params, timeout=20)
+        resp = requests.get(url, params=params, timeout=8)
+        _log.info("Adzuna response status=%d for query=%r", resp.status_code, query)
         resp.raise_for_status()
         results = (resp.json() or {}).get("results") or []
     except Exception as exc:
@@ -146,8 +148,10 @@ def _search_jsearch(
         "X-RapidAPI-Key": RAPIDAPI_KEY,
         "X-RapidAPI-Host": JSEARCH_HOST,
     }
+    _log.info("JSearch calling API for query=%r", query)
     try:
-        resp = requests.get(JSEARCH_URL, params=params, headers=headers, timeout=15)
+        resp = requests.get(JSEARCH_URL, params=params, headers=headers, timeout=8)
+        _log.info("JSearch response status=%d for query=%r", resp.status_code, query)
         resp.raise_for_status()
         data = resp.json() or {}
         results = data.get("data") or []
