@@ -128,9 +128,10 @@ def find_matching_jobs(
         for title, jobs in matched.items():
             by_role.setdefault(title, []).extend(jobs)
 
-    # Dedupe by job_id per role, then drop stale listings (> 3 days old).
+    # Dedupe by job_id per role, then drop stale listings (> 7 days old).
+    # JSearch pre-filters to "week" at the API level; keep in sync here.
     _today = datetime.now(tz=timezone.utc).date()
-    _MAX_DAYS = 3
+    _MAX_DAYS = 7
     for title in by_role:
         seen: set[str] = set()
         unique: list[dict[str, Any]] = []
