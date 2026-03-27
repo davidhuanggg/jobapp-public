@@ -86,10 +86,11 @@ def _search_adzuna(
         "content-type": "application/json",
     }
     try:
-        resp = requests.get(url, params=params, timeout=15)
+        resp = requests.get(url, params=params, timeout=20)
         resp.raise_for_status()
         results = (resp.json() or {}).get("results") or []
-    except Exception:
+    except Exception as exc:
+        _log.warning("Adzuna request failed for query=%r: %s", query, exc)
         return []
     out = []
     for j in results:
@@ -112,7 +113,7 @@ def _search_adzuna(
                 posted_date=created,
             )
         )
-    _log.info("Adzuna query=%r  returned=%d jobs", query, len(out))
+    _log.info("Adzuna query=%r  returned=%d jobs (raw results=%d)", query, len(out), len(results))
     return out
 
 
@@ -151,8 +152,7 @@ def _search_jsearch(
         data = resp.json() or {}
         results = data.get("data") or []
     except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning("JSearch request failed: %s", exc)
+        _log.warning("JSearch request failed for query=%r: %s", query, exc)
         return []
     out = []
     for j in results:
@@ -192,7 +192,7 @@ def _search_jsearch(
                 responsibilities=responsibilities if responsibilities else None,
             )
         )
-    _log.info("JSearch query=%r  returned=%d jobs", query, len(out))
+    _log.info("JSearch query=%r  returned=%d jobs (raw results=%d)", query, len(out), len(results))
     return out
 
 
