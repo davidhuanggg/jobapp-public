@@ -17,8 +17,11 @@ import requests
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Resolve .env relative to this file so it works regardless of launch CWD.
-load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent.parent / ".env", override=False)
+# Load .env files by absolute path so launch CWD doesn't matter.
+# services/.env holds Adzuna/RapidAPI keys; backend/.env holds shared keys (GROQ, etc.).
+_here = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=_here / ".env", override=False)                  # app/services/.env
+load_dotenv(dotenv_path=_here.parent.parent / ".env", override=False)    # backend/.env
 
 # ---------------------------------------------------------------------------
 # Normalized job shape (all providers map to this)
