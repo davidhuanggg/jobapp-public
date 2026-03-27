@@ -10,12 +10,15 @@ Greenhouse/Lever: Used for *official company career pages* (per-company), not gl
 search — see company_jobs_client.py. "Greenboard" = Greenhouse job board = already
 integrated there.
 """
+import logging
 import os
 from typing import Any
 
 import requests
 from dotenv import load_dotenv
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 # Load .env files by absolute path so launch CWD doesn't matter.
 # services/.env holds Adzuna/RapidAPI keys; backend/.env holds shared keys (GROQ, etc.).
@@ -109,6 +112,7 @@ def _search_adzuna(
                 posted_date=created,
             )
         )
+    _log.info("Adzuna query=%r  returned=%d jobs", query, len(out))
     return out
 
 
@@ -188,6 +192,7 @@ def _search_jsearch(
                 responsibilities=responsibilities if responsibilities else None,
             )
         )
+    _log.info("JSearch query=%r  returned=%d jobs", query, len(out))
     return out
 
 

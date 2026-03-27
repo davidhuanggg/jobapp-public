@@ -1,11 +1,14 @@
 """
 Matches recommended roles to real job postings from job board APIs and official company career pages.
 """
+import logging
 import re
 from datetime import date, datetime, timezone
 from typing import Any
 
 from app.services.job_board_client import search_jobs as job_board_search
+
+_log = logging.getLogger(__name__)
 from app.services.company_jobs_client import fetch_company_jobs
 from app.services.requirement_match_service import resume_to_job_match_stats
 from app.services.experience_level_service import infer_job_level, level_compatible
@@ -101,12 +104,15 @@ def find_matching_jobs(
             results_per_page=jobs_per_role,
             country=country,
         )
+        passed, dropped = 0, 0
         for j in jobs:
             # Tighten matching: avoid "Backend Engineer" matching "Software Engineer".
             job_title = j.get("title") or ""
             if not _title_overlap(title, job_title):
+                dropped += 1
                 continue
 
+            passed += 1
             src = j.get("source")
             if src and src not in sources_used:
                 sources_used.append(src)
@@ -114,6 +120,7 @@ def find_matching_jobs(
             u = j.get("source_url") or ""
             if u:
                 candidate_official_urls.add(u)
+        _log.info("Title=%r  raw=%d  passed_overlap=%d  dropped_overlap=%d", title, len(jobs), passed, dropped)
 
     # Official company career pages
     if include_company_jobs:
