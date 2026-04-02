@@ -107,10 +107,18 @@ def find_matching_jobs(
     """
     # Resolve the true YoE floor once, up front, using all candidate signals.
     effective_yoe = resolve_candidate_yoe(candidate_yoe, candidate_level)
-    _log.info(
-        "find_matching_jobs: candidate_yoe=%s  candidate_level=%s  effective_yoe=%s",
-        candidate_yoe, candidate_level, effective_yoe,
-    )
+    if effective_yoe is None:
+        _log.warning(
+            "find_matching_jobs: no candidate YoE data available "
+            "(candidate_yoe=%s  candidate_level=%s) — YoE filter will not run",
+            candidate_yoe, candidate_level,
+        )
+    else:
+        _log.info(
+            "find_matching_jobs: candidate_yoe=%s  candidate_level=%s  effective_yoe=%s",
+            candidate_yoe, candidate_level, effective_yoe,
+        )
+    total_yoe_dropped = 0
     role_titles = [r.get("title", "").strip() for r in recommended_roles if r.get("title")]
     by_role: dict[str, list[dict[str, Any]]] = {t: [] for t in role_titles}
     sources_used: list[str] = []
@@ -209,6 +217,7 @@ def find_matching_jobs(
                 kept.append(job)
         by_role[title] = kept
         dropped = before - len(kept)
+        total_yoe_dropped += dropped
         if dropped:
             _log.info(
                 "YoE filter: dropped %d/%d jobs for role=%r "
@@ -237,4 +246,14 @@ def find_matching_jobs(
             jobs_list.sort(key=lambda j: j.get("requirement_match_pct", 0), reverse=True)
             by_role[title] = jobs_list[:jobs_per_role]
 
-    return {"by_role": by_role, "sources_used": list(dict.fromkeys(sources_used))}
+    return {
+        "by_role": by_role,
+        "sources_used": list(dict.fromkeys(sources_used)),
+        "filter_metadata": {
+            "candidate_yoe": candidate_yoe,
+            "candidate_level": candidate_level,
+            "effective_yoe": effective_yoe,
+            "yoe_filter_active": effective_yoe is not None,
+            "jobs_dropped_by_yoe_filter": total_yoe_dropped,
+        },
+    }

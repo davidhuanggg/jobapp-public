@@ -141,10 +141,19 @@ async def match_jobs_to_roles(body: MatchJobsRequest, db: Session = Depends(get_
         if not resume:
             raise HTTPException(404, "Resume not found")
         resume_skills = resume.skills or []
-        # Pass both raw fields — resolve_candidate_yoe inside find_matching_jobs
-        # will derive the effective YoE floor from whichever is available.
         candidate_yoe = getattr(resume, "years_of_experience", None)
         candidate_level = getattr(resume, "career_level", None)
+
+        # If the resume record has no career data (stale record saved before
+        # the career extraction pipeline existed), refuse to run unfiltered
+        # rather than silently returning every job regardless of YoE.
+        if candidate_yoe is None and candidate_level is None:
+            raise HTTPException(
+                422,
+                "Resume has no career profile (career_level and years_of_experience "
+                "are both null). Re-upload the resume via /parse-and-recommend to "
+                "rebuild the profile, then retry."
+            )
 
         # If role titles aren't provided, generate them from the saved resume.
         if len(role_titles) == 0:
