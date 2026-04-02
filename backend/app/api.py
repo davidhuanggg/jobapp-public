@@ -30,6 +30,13 @@ class MatchJobsRequest(BaseModel):
     role_titles: list[str] | None = None
 
 
+class LearningPathsRequest(BaseModel):
+    """Request learning paths for a saved resume."""
+
+    resume_id: int
+    role_titles: list[str] | None = None
+
+
 class LearningResourcesRequest(BaseModel):
     """Strict: must match a resume row from your own `/parse-and-recommend` flow."""
 
@@ -94,53 +101,11 @@ async def parse_and_recommend(
 
     roles = recommendations.get("recommended_roles", [])
 
-    # One extract_job_skills call per recommended role (used for paths + cross-role demand)
-    role_skill_rows: list[tuple[str, list[str]]] = []
     for role in roles:
-        role_title = role["title"]
-        role_skills = extract_job_skills(role_title)
-        role_skill_rows.append((role_title, role_skills))
-
-    all_skill_strings = collect_strings_for_clustering(resume_skills, role_skill_rows)
-    cluster_map = build_dynamic_cluster_map(all_skill_strings)
-
-    learning_paths: dict = {}
-    title_to_skills = dict(role_skill_rows)
-    candidate_level = career_info.get("career_level")
-
-    # Build all paths first so we can batch the certification LLM call.
-    roles_gap_skills: dict[str, list[str]] = {}
-    for role in roles:
-        role_title = role["title"]
-        role_skills = title_to_skills[role_title]
-        path = build_learning_path_for_role(
-            resume_skills=resume_skills,
-            role_skills=role_skills,
-            cluster_map=cluster_map,
-        )
-        learning_paths[role_title] = path
-        roles_gap_skills[role_title] = (
-            path.get("core", []) + path.get("important", []) + path.get("optional", [])
-        )
         role["detailed_explanation"] = explain_role(
-            role_title,
+            role["title"],
             years_of_experience=career_info.get("years_of_experience"),
         )
-
-    # Single LLM call for all roles instead of one per role.
-    all_certs = get_certifications_for_all_roles(
-        roles_gap_skills,
-        career_level=candidate_level,
-        cluster_map=cluster_map,
-    )
-    for role_title, path in learning_paths.items():
-        path["recommended_certifications"] = all_certs.get(role_title, [])
-
-    skill_demand = build_skill_role_relevance(
-        role_skill_rows,
-        resume_skills=resume_skills,
-        cluster_map=cluster_map,
-    )
 
     return {
         "resume_id": saved_resume.id,
@@ -150,8 +115,6 @@ async def parse_and_recommend(
             "is_student": career_info["is_student"],
         },
         "recommendations": roles,
-        "learning_paths": learning_paths,
-        "skill_demand_across_recommended_roles": skill_demand,
     }
 
 
@@ -216,6 +179,88 @@ async def match_jobs_to_roles(body: MatchJobsRequest, db: Session = Depends(get_
         candidate_yoe=candidate_yoe,
         candidate_level=candidate_level,
     )
+
+
+@router.post("/learning-paths")
+async def learning_paths_endpoint(body: LearningPathsRequest, db: Session = Depends(get_db)):
+    """
+    Return learning paths (skill gaps + certifications + skill demand) for a
+    saved resume.
+
+    Call this after ``/parse-and-recommend`` to lazy-load the heavier analysis.
+    Optionally pass ``role_titles`` to override the auto-generated role list.
+    """
+    resume = get_resume(db, body.resume_id)
+    if not resume:
+        raise HTTPException(404, "Resume not found")
+
+    resume_skills = resume.skills or []
+    if not resume_skills:
+        return {"learning_paths": {}, "skill_demand_across_recommended_roles": {}}
+
+    role_titles: list[str] = list(body.role_titles or [])
+    if not role_titles:
+        education = [
+            {"degree": e.degree, "field": e.field, "institution": e.university}
+            for e in (resume.education or [])
+        ]
+        work_experience = [
+            {"company": w.company, "title": w.position, "duration": w.duration}
+            for w in (resume.work_experience or [])
+        ]
+        recommendations = get_recommendations(
+            skills=resume_skills,
+            education=education,
+            work_experience=work_experience,
+            career_level=getattr(resume, "career_level", None),
+            years_of_experience=getattr(resume, "years_of_experience", None),
+        )
+        role_titles = [
+            r.get("title") for r in recommendations.get("recommended_roles", [])
+            if r.get("title")
+        ]
+
+    if not role_titles:
+        return {"learning_paths": {}, "skill_demand_across_recommended_roles": {}}
+
+    role_skill_rows: list[tuple[str, list[str]]] = [
+        (title, extract_job_skills(title)) for title in role_titles
+    ]
+
+    all_skill_strings = collect_strings_for_clustering(resume_skills, role_skill_rows)
+    cluster_map = build_dynamic_cluster_map(all_skill_strings)
+
+    learning_paths: dict = {}
+    roles_gap_skills: dict[str, list[str]] = {}
+    for role_title, role_skills in role_skill_rows:
+        path = build_learning_path_for_role(
+            resume_skills=resume_skills,
+            role_skills=role_skills,
+            cluster_map=cluster_map,
+        )
+        learning_paths[role_title] = path
+        roles_gap_skills[role_title] = (
+            path.get("core", []) + path.get("important", []) + path.get("optional", [])
+        )
+
+    all_certs = get_certifications_for_all_roles(
+        roles_gap_skills,
+        career_level=getattr(resume, "career_level", None),
+        cluster_map=cluster_map,
+    )
+    for role_title, path in learning_paths.items():
+        path["recommended_certifications"] = all_certs.get(role_title, [])
+
+    skill_demand = build_skill_role_relevance(
+        role_skill_rows,
+        resume_skills=resume_skills,
+        cluster_map=cluster_map,
+    )
+
+    return {
+        "learning_paths": learning_paths,
+        "skill_demand_across_recommended_roles": skill_demand,
+    }
 
 
 @router.post("/learning-resources")
