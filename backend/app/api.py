@@ -66,6 +66,15 @@ async def parse_and_recommend(
         work_experience=work_experience if isinstance(work_experience, list) else [],
         education=education if isinstance(education, list) else [],
     )
+
+    # Default null YoE to 0.0 for levels that imply little/no experience so
+    # that YoE-based filtering is never bypassed for entry-level candidates.
+    if (
+        career_info.get("years_of_experience") is None
+        and career_info.get("career_level") in ("apprenticeship", "intern", "entry")
+    ):
+        career_info["years_of_experience"] = 0.0
+
     resume_data["years_of_experience"] = career_info["years_of_experience"]
     resume_data["career_level"] = career_info["career_level"]
     resume_data["is_student"] = career_info["is_student"]
@@ -78,7 +87,9 @@ async def parse_and_recommend(
     recommendations = get_recommendations(
         skills=resume_skills,
         education=education,
-        work_experience=work_experience
+        work_experience=work_experience,
+        career_level=career_info.get("career_level"),
+        years_of_experience=career_info.get("years_of_experience"),
     )
 
     roles = recommendations.get("recommended_roles", [])
@@ -111,7 +122,10 @@ async def parse_and_recommend(
         roles_gap_skills[role_title] = (
             path.get("core", []) + path.get("important", []) + path.get("optional", [])
         )
-        role["detailed_explanation"] = explain_role(role_title)
+        role["detailed_explanation"] = explain_role(
+            role_title,
+            years_of_experience=career_info.get("years_of_experience"),
+        )
 
     # Single LLM call for all roles instead of one per role.
     all_certs = get_certifications_for_all_roles(
@@ -155,6 +169,7 @@ async def match_jobs_to_roles(body: MatchJobsRequest, db: Session = Depends(get_
         raise HTTPException(400, "Provide either `resume_id` or `role_titles`.")
 
     resume_skills = None
+    candidate_yoe: float | None = None
     candidate_level: str | None = None
     role_titles: list[str] = body.role_titles or []
 
@@ -163,6 +178,9 @@ async def match_jobs_to_roles(body: MatchJobsRequest, db: Session = Depends(get_
         if not resume:
             raise HTTPException(404, "Resume not found")
         resume_skills = resume.skills or []
+        # Pass both raw fields — resolve_candidate_yoe inside find_matching_jobs
+        # will derive the effective YoE floor from whichever is available.
+        candidate_yoe = getattr(resume, "years_of_experience", None)
         candidate_level = getattr(resume, "career_level", None)
 
         # If role titles aren't provided, generate them from the saved resume.
@@ -181,6 +199,8 @@ async def match_jobs_to_roles(body: MatchJobsRequest, db: Session = Depends(get_
                 skills=resume_skills,
                 education=education,
                 work_experience=work_experience,
+                career_level=candidate_level,
+                years_of_experience=candidate_yoe,
             )
             role_titles = [r.get("title") for r in recommendations.get("recommended_roles", []) if r.get("title")]
 
@@ -193,6 +213,7 @@ async def match_jobs_to_roles(body: MatchJobsRequest, db: Session = Depends(get_
         include_company_jobs=True,
         country="us",
         candidate_skills=resume_skills,
+        candidate_yoe=candidate_yoe,
         candidate_level=candidate_level,
     )
 
@@ -229,6 +250,8 @@ async def learning_resources(body: LearningResourcesRequest, db: Session = Depen
             skills=resume_skills,
             education=education,
             work_experience=work_experience,
+            career_level=getattr(resume, "career_level", None),
+            years_of_experience=getattr(resume, "years_of_experience", None),
         )
         role_titles = [r.get("title") for r in recommendations.get("recommended_roles", []) if r.get("title")]
 

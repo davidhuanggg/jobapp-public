@@ -1,35 +1,79 @@
 """
-Career-level inference for job listings.
+YoE-based filtering for job listings.
 
-Candidate level comes from the LLM in ``parse-and-recommend`` (stored on ``ResumeDB``).
-Job level is inferred here from the posting's title + description.
+Filtering is a two-layer process:
 
-Levels (YoE ranges):
-  apprenticeship   0       — no paid experience
-  intern           0+      — currently a student with little/no experience
-  entry            0–2     — recent grad / first role
-  mid              2–4     — independent contributor
-  senior           4+      — leads / mentors
+  Layer 1 — explicit:  find the lowest numeric YoE requirement written in the
+                       job title, description, or qualifications bullets.
+  Layer 2 — implicit:  when no number is present, infer a floor from seniority
+                       keywords in the job title ("Senior" → 4 yrs, etc.).
+
+If neither layer produces a requirement, the job is kept (we can't prove it's
+wrong for the candidate).  This is intentional: an unlabelled "Software
+Engineer" posting is not necessarily wrong for a 1-year candidate.
+
+Public API
+----------
+resolve_candidate_yoe   -- turn all candidate data into one concrete YoE floor
+extract_min_yoe         -- pull the lowest explicit YoE from any text block
+infer_title_min_yoe     -- infer implicit YoE floor from title keywords alone
+yoe_compatible          -- final yes/no gate combining both layers
 """
 
 from __future__ import annotations
 
 import re
 
-LEVEL_ORDER: dict[str, int] = {
-    "apprenticeship": 0,
-    "intern": 1,
-    "entry": 2,
-    "mid": 3,
-    "senior": 4,
+# ---------------------------------------------------------------------------
+# Candidate-side: resolve a concrete YoE from whatever data we have
+# ---------------------------------------------------------------------------
+
+# Safe YoE floor for each career level when explicit years aren't recorded.
+# Entry/intern/apprenticeship → 0 (little or no paid experience, by definition).
+# Mid → 2 (minimum of the 2–4 year band).
+# Senior → 4 (minimum of the 4+ year band).
+_LEVEL_YOE_FLOOR: dict[str, float] = {
+    "apprenticeship": 0.0,
+    "intern":         0.0,
+    "entry":          0.0,
+    "mid":            2.0,
+    "senior":         4.0,
 }
+
+
+def resolve_candidate_yoe(
+    years_of_experience: float | None,
+    career_level: str | None,
+) -> float | None:
+    """
+    Return a concrete years-of-experience floor for filtering.
+
+    Priority:
+    1. Use ``years_of_experience`` directly when the LLM measured it.
+    2. Fall back to ``career_level`` as a proxy (entry/intern/apprenticeship
+       → 0, mid → 2, senior → 4).
+    3. Return ``None`` only when we have no information at all — the filter
+       will then treat every job as compatible rather than guess.
+    """
+    if years_of_experience is not None:
+        return years_of_experience
+    return _LEVEL_YOE_FLOOR.get(career_level)  # None if level is unknown
+
+
+# ---------------------------------------------------------------------------
+# Job-side layer 1: extract the explicit numeric YoE from posting text
+# ---------------------------------------------------------------------------
 
 _YOE_PATTERN = re.compile(
     r"""
     (?:minimum|at\s+least|minimum\s+of|at\s+least\s+of)?\s*  # optional qualifier
     (\d+(?:\.\d+)?)                                           # the number (captured)
-    \s*\+?\s*                                                 # optional "+"
-    (?:to\s*\d+\s*)?                                          # optional "to N" range
+    \s*                                                       # optional whitespace
+    (?:                                                       # optional range / plus
+        \+                                                    #   "2+"
+      | (?:[-–—]\s*\d+(?:\.\d+)?)                            #   "8-12" / "6–10"
+      | (?:to\s*\d+(?:\.\d+)?)                               #   "3 to 5"
+    )?\s*
     (?:years?|yrs?|yoe)                                       # unit: years / yrs / yoe
     (?:\s*of)?                                                # optional "of"
     (?:\s*(?:experience|exp|work\s+experience))?              # optional "experience"
@@ -37,89 +81,128 @@ _YOE_PATTERN = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-# Title keywords (most reliable — checked first).
-_TITLE_KEYWORDS: list[tuple[str, list[str]]] = [
-    ("senior",        ["senior", "sr.", " sr ", "lead ", "staff ", "principal", "l5", "l6"]),
-    ("mid",           ["mid-level", "mid level", " iii", " ii", "l3", "l4"]),
-    ("entry",         ["entry level", "entry-level", "junior", "jr.", " jr ", "new grad",
-                       "associate", "l1", "l2", "graduate"]),
-    ("intern",        ["intern", "internship", "co-op", "coop", "co op"]),
-    ("apprenticeship",["apprentice", "apprenticeship", "trainee"]),
-]
 
-# Description-only keywords (used as final fallback after YoE extraction fails).
-_DESC_KEYWORDS: list[tuple[str, list[str]]] = [
-    ("senior",        ["senior", "sr.", " sr ", "lead engineer", "staff engineer",
-                       "principal engineer", "seasoned", "extensive experience",
-                       "deep expertise", "expert-level", "subject matter expert"]),
-    ("mid",           ["mid-level", "mid level", "intermediate", " iii", " ii"]),
-    ("entry",         ["entry level", "entry-level", "junior", "new grad", "recent grad",
-                       "early career", "no experience required", "0-2 years",
-                       "associate", "graduate", "fresh grad"]),
-    ("intern",        ["intern", "internship", "co-op", "coop"]),
-    ("apprenticeship",["apprentice", "apprenticeship", "trainee"]),
-]
-
-
-def _yoe_to_level(yoe: float) -> str:
-    if yoe < 2.0:
-        return "entry"
-    if yoe < 4.0:
-        return "mid"
-    return "senior"
-
-
-def infer_job_level(description: str, title: str = "") -> tuple[str | None, float | None]:
+def extract_min_yoe(text: str | None) -> float | None:
     """
-    Returns ``(level, min_required_yoe)``.
-    ``level`` is None when we cannot confidently infer it (keep the job).
+    Pull the minimum years-of-experience number from any text block.
+
+    Returns the smallest YoE figure found (the true floor when a posting
+    lists multiple tiers such as "3 yrs with a Masters OR 5 yrs with a
+    Bachelor's"), or ``None`` if the description doesn't mention a specific
+    requirement.
     """
-    title_l = (title or "").lower()
-    desc_l = (description or "").lower()
-    combined = f"{title_l} {desc_l}"
-
-    # Title keywords are the most reliable signal.
-    for level, keywords in _TITLE_KEYWORDS:
-        if any(kw in title_l for kw in keywords):
-            return level, None
-
-    # Minimum explicit YoE requirement from description.
-    yoe_matches = _YOE_PATTERN.findall(desc_l)
-    if yoe_matches:
-        min_yoe = min(float(y) for y in yoe_matches)
-        return _yoe_to_level(min_yoe), min_yoe
-
-    # Description keyword fallback.
-    for level, keywords in _DESC_KEYWORDS:
-        if any(kw in desc_l for kw in keywords):
-            return level, None
-
-    return None, None
+    matches = _YOE_PATTERN.findall((text or "").lower())
+    if not matches:
+        return None
+    return min(float(y) for y in matches)
 
 
-# Levels where filtering is currently active.
-# Mid and senior tiers are not yet fully validated, so candidates at those
-# levels bypass the filter and see all jobs until the upper tiers are ready.
-_ACTIVE_FILTER_LEVELS: frozenset[str] = frozenset({"apprenticeship", "intern", "entry"})
+# ---------------------------------------------------------------------------
+# Job-side layer 2: infer implicit YoE floor from title seniority keywords
+# ---------------------------------------------------------------------------
+
+# Titles that imply little or no prior experience required.
+_ENTRY_TITLE_RE = re.compile(
+    r"\b(junior|jr\.?|entry[\s-]?level|entry|graduate|grad|intern|internship"
+    r"|trainee|apprentice|associate)\b",
+    re.IGNORECASE,
+)
+
+# Titles that imply ~2+ years of relevant experience.
+_MID_TITLE_RE = re.compile(
+    r"\b(mid[\s-]?level|mid|intermediate)\b",
+    re.IGNORECASE,
+)
+
+# Titles that imply 4+ years of experience.  Word boundaries prevent matching
+# "assisting" or "leadership" as false positives.
+_SENIOR_TITLE_RE = re.compile(
+    r"\b(senior|sr\.?|lead|staff|principal|manager|director|head\s+of"
+    r"|vp|vice[\s-]?president|chief|architect)\b",
+    re.IGNORECASE,
+)
+
+# Approximate YoE floors assigned to each seniority tier.
+_ENTRY_YOE  = 0.0
+_MID_YOE    = 2.0
+_SENIOR_YOE = 4.0
 
 
-def level_compatible(candidate_level: str | None, job_level: str | None) -> bool:
+def infer_title_min_yoe(title: str) -> float | None:
     """
-    True when the job level is appropriate for the candidate.
+    Return a YoE floor inferred from seniority keywords in a job title.
 
-    Filtering is currently scoped to entry-level candidates and below
-    (apprenticeship, intern, entry).  Mid and senior candidates bypass the
-    filter entirely until those tiers are fully validated.
+    Returns ``None`` when the title has no clear seniority marker (e.g.
+    "Software Engineer", "Data Analyst") — the caller should treat that
+    as "no opinion" rather than a hard block.
 
-    For active levels:
-    - Job must be within 1 level of the candidate (either direction).
-    - Unknown job level defaults to "mid" so entry-level candidates aren't
-      inadvertently shown senior roles that omitted a level tag.
+    Examples
+    --------
+    >>> infer_title_min_yoe("Senior Data Analyst")
+    4.0
+    >>> infer_title_min_yoe("Junior Software Engineer")
+    0.0
+    >>> infer_title_min_yoe("Data Analyst")   # no keyword
+    None
     """
-    if not candidate_level or candidate_level not in _ACTIVE_FILTER_LEVELS:
+    if not title:
+        return None
+    if _ENTRY_TITLE_RE.search(title):
+        return _ENTRY_YOE
+    if _MID_TITLE_RE.search(title):
+        return _MID_YOE
+    if _SENIOR_TITLE_RE.search(title):
+        return _SENIOR_YOE
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Gate: does this job fit this candidate?
+# ---------------------------------------------------------------------------
+
+def yoe_compatible(
+    candidate_yoe: float | None,
+    description: str,
+    title: str = "",
+    qualifications: list[str] | None = None,
+) -> bool:
+    """
+    ``True`` when the job posting is appropriate for the candidate's years of
+    experience.
+
+    Two-layer check
+    ---------------
+    Layer 1 — explicit requirement:
+        Scans the combined text of title + description + qualifications bullets
+        for any "N years of experience" phrasing.  When found, the minimum
+        across all matches is the requirement.
+
+    Layer 2 — title-implied requirement:
+        When no explicit number is found, the seniority level implied by the
+        job title is used as a proxy floor ("Senior" → 4 yrs, "Mid" → 2 yrs,
+        "Junior/Entry/Intern" → 0 yrs).
+
+    If neither layer finds a signal, the job is kept (no data → no block).
+    If ``candidate_yoe`` is ``None``, the job is kept (caller has no data).
+    """
+    # No candidate data → cannot make a judgment, keep the job.
+    if candidate_yoe is None:
         return True
-    _DEFAULT_JOB_LEVEL = "mid"
-    effective_job_level = job_level or _DEFAULT_JOB_LEVEL
-    c = LEVEL_ORDER.get(candidate_level, 2)
-    j = LEVEL_ORDER.get(effective_job_level, 2)
-    return abs(j - c) <= 1
+
+    # Layer 1: look for an explicit YoE number anywhere in the posting text.
+    parts = [title or "", description or ""]
+    if qualifications:
+        parts.extend(q for q in qualifications if isinstance(q, str))
+    combined = " ".join(parts)
+
+    required_yoe = extract_min_yoe(combined)
+    if required_yoe is not None:
+        return candidate_yoe >= required_yoe
+
+    # Layer 2: no number found — fall back to title keywords.
+    title_floor = infer_title_min_yoe(title or "")
+    if title_floor is not None:
+        return candidate_yoe >= title_floor
+
+    # No signal at all → keep the job.
+    return True

@@ -1,8 +1,16 @@
 import json
+import logging
 import os
 import re
 from dotenv import load_dotenv
 from groq import Groq
+from app.services.experience_level_service import (
+    extract_min_yoe,
+    resolve_candidate_yoe,
+    yoe_compatible,
+)
+
+_log = logging.getLogger(__name__)
 
 # ============================
 # ENV SETUP
@@ -30,6 +38,32 @@ def extract_json(text: str) -> dict:
     return {"recommended_roles": []}
 
 
+# Matches full clauses/sentences that mention a YoE requirement, e.g.
+#   "3+ years of experience in data analysis"
+#   "Bachelor's degree and 8-12 years experience"
+#   "Minimum 5 years of work experience required."
+_YOE_SENTENCE_RE = re.compile(
+    r"[^.;:\n]*"                  # leading context within the same clause
+    r"\d+(?:\.\d+)?"             # the number
+    r"\s*(?:\+|[-–—]\s*\d+(?:\.\d+)?)?\s*"
+    r"(?:years?|yrs?|yoe)"       # unit
+    r"[^.;:\n]*"                  # trailing context within the same clause
+    r"[.;:\n]?",                  # optional punctuation at the end
+    re.IGNORECASE,
+)
+
+
+def _strip_yoe_mentions(text: str) -> str:
+    """Remove sentences/clauses that reference a specific YoE requirement."""
+    cleaned = _YOE_SENTENCE_RE.sub("", text)
+    # Collapse leftover whitespace and stray punctuation.
+    cleaned = re.sub(r"\n{2,}", "\n", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"(?:^[\s,;:]+)|(?:[\s,;:]+$)", "", cleaned, flags=re.MULTILINE)
+    return cleaned.strip()
+
+
+
 # ============================
 # MAIN RECOMMENDER
 # ============================
@@ -37,6 +71,9 @@ def get_recommendations(
     skills: list[str],
     education: list[dict],
     work_experience: list[dict],
+    *,
+    career_level: str | None = None,
+    years_of_experience: float | None = None,
 ):
     """
     Generate job recommendations using ONLY structured resume data.
@@ -66,6 +103,28 @@ def get_recommendations(
         if work_experience else "- N/A"
     )
 
+    # ---- Seniority constraint (injected only when known) ----
+    _LEVEL_MAX_YOE = {
+        "apprenticeship": 0,
+        "intern": 1,
+        "entry": 2,
+        "mid": 4,
+        "senior": 99,
+    }
+    yoe_display = (
+        f"{years_of_experience:.1f}" if years_of_experience is not None else "0"
+    )
+    if career_level in _LEVEL_MAX_YOE:
+        max_yoe = _LEVEL_MAX_YOE[career_level]
+        seniority_rule = (
+            f"- The candidate has {yoe_display} years of paid experience "
+            f"(career level: {career_level}). "
+            f"ONLY recommend roles that require AT MOST {max_yoe} years of experience. "
+            f"DO NOT recommend mid-level, senior, lead, staff, or principal roles."
+        )
+    else:
+        seniority_rule = ""
+
     prompt = f"""
 You are a job recommendation engine.
 
@@ -73,7 +132,8 @@ STRICT RULES:
 - Use ONLY the information provided below.
 - DO NOT infer, assume, or guess missing skills.
 - Every recommended role MUST be directly supported by the skills or experience.
-- Return EXACTLY 10 roles — no more, no fewer (unless fewer than 10 are genuinely justified).
+{seniority_rule}
+- Return UP TO 10 roles. Fewer is fine if that is all that is genuinely justified.
 - If no roles are justified, return an empty list.
 
 Candidate Skills:
@@ -102,11 +162,40 @@ Return JSON ONLY in this format — keep each "reason" to one concise sentence:
             {"role": "system", "content": "You are a precise JSON-only API."},
             {"role": "user", "content": prompt},
         ],
-        temperature=0.6,
+        temperature=0.2,
         max_tokens=800,
     )
 
-    return extract_json(response.choices[0].message.content)
+    raw_roles = extract_json(response.choices[0].message.content).get("recommended_roles", [])
+
+    # Deterministic guard — drop roles whose title implies a seniority level
+    # the candidate hasn't reached yet, regardless of what the LLM returned.
+    # Uses the same resolve_candidate_yoe + yoe_compatible logic as job listing
+    # filtering so the two layers are always in sync.
+    #
+    # Critically: resolve_candidate_yoe falls back to career_level when
+    # years_of_experience is None, so a 0-year entry-level candidate whose
+    # LLM-parsed YoE came back null is still correctly assigned a 0.0 floor.
+    effective_yoe = resolve_candidate_yoe(years_of_experience, career_level)
+    before = len(raw_roles)
+    raw_roles = [
+        r for r in raw_roles
+        if yoe_compatible(effective_yoe, "", r.get("title", ""))
+    ]
+    dropped = before - len(raw_roles)
+    if dropped:
+        _log.info(
+            "Filtered %d over-seniority role(s) for candidate "
+            "(effective_yoe=%s  yoe=%s  level=%s)",
+            dropped, effective_yoe, years_of_experience, career_level,
+        )
+
+    # Strip any YoE mentions the LLM snuck into the reason text.
+    for r in raw_roles:
+        if r.get("reason"):
+            r["reason"] = _strip_yoe_mentions(r["reason"])
+
+    return {"recommended_roles": raw_roles}
 
 
 # ============================
@@ -210,12 +299,23 @@ Return JSON ONLY:
 # ============================
 # ROLE EXPLANATION
 # ============================
-def explain_role(role_title: str) -> str:
+def explain_role(role_title: str, *, years_of_experience: float | None = None) -> str:
+    yoe_ctx = ""
+    if years_of_experience is not None:
+        yoe_ctx = (
+            f"\nThe candidate has {years_of_experience:.1f} years of experience. "
+            f"Tailor your explanation to someone at that experience level. "
+            f"DO NOT mention experience requirements that exceed {years_of_experience:.1f} years."
+        )
+
     prompt = f"""
 Explain the role "{role_title}" in detail:
 - Typical responsibilities
-- Required skills
+- Required skills (technical and soft)
 - Common industries
+{yoe_ctx}
+Do NOT include specific years-of-experience requirements or degree requirements.
+Focus on what the role does and what skills are used.
 """
 
     response = client.chat.completions.create(
@@ -228,5 +328,6 @@ Explain the role "{role_title}" in detail:
         max_tokens=400,
     )
 
-    return response.choices[0].message.content.strip()
+    text = response.choices[0].message.content.strip()
+    return _strip_yoe_mentions(text)
 

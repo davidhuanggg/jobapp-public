@@ -1,17 +1,13 @@
 """
-Integration tests: verify that the career level produced by parse-and-recommend
-is correctly enforced when filtering jobs in jobs/match.
+Integration tests: verify that YoE-based filtering correctly excludes job
+postings whose experience requirements exceed the candidate's actual years.
 
-These tests exercise the full seniority pipeline without hitting any external API:
-  1. infer_job_level  — detects the level of a job posting
-  2. level_compatible — checks whether that level suits the candidate
-  3. The combined filter loop used in find_matching_jobs
-
-"parse-and-recommend career level" is represented here as the ``candidate_level``
-string (e.g. "entry") that gets stored on ResumeDB and later read by jobs/match.
+These tests exercise the same pipeline used in find_matching_jobs:
+  1. extract_min_yoe — pulls the required YoE from a description
+  2. yoe_compatible  — compares it against the candidate's YoE
 """
 import pytest
-from app.services.experience_level_service import infer_job_level, level_compatible, LEVEL_ORDER
+from app.services.experience_level_service import extract_min_yoe, yoe_compatible
 
 
 # ---------------------------------------------------------------------------
@@ -23,203 +19,116 @@ def _job(title: str, description: str = "") -> dict:
     return {"title": title, "description_snippet": description}
 
 
-def _apply_level_filter(jobs: list[dict], candidate_level: str) -> list[dict]:
+def _apply_yoe_filter(jobs: list[dict], candidate_yoe: float | None) -> list[dict]:
     """
-    Mirror of the level-filter loop inside find_matching_jobs.
-    Tags each job with job_level then keeps only compatible ones.
+    Mirror of the YoE filter loop inside find_matching_jobs.
     """
-    tagged = []
-    for job in jobs:
-        level, min_yoe = infer_job_level(
-            job.get("description_snippet") or "",
-            job.get("title") or "",
+    return [
+        j for j in jobs
+        if yoe_compatible(
+            candidate_yoe,
+            j.get("description_snippet") or "",
+            j.get("title") or "",
         )
-        job = dict(job)
-        job["job_level"] = level
-        if min_yoe is not None:
-            job["job_min_yoe"] = min_yoe
-        tagged.append(job)
-
-    if candidate_level:
-        return [j for j in tagged if level_compatible(candidate_level, j.get("job_level"))]
-    return tagged
+    ]
 
 
 # ---------------------------------------------------------------------------
-# Entry-level candidate (parse-and-recommend → "entry")
+# 0 years of experience (fresh candidate)
 # ---------------------------------------------------------------------------
-class TestEntryLevelCandidate:
-    CANDIDATE = "entry"
+class TestZeroYoECandidate:
+    YOE = 0.0
 
-    def test_entry_job_is_included(self):
-        jobs = [_job("Junior Software Engineer")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 1
-        assert result[0]["job_level"] == "entry"
+    def test_no_requirement_is_included(self):
+        jobs = [_job("Software Engineer", "Build cool products.")]
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 1
 
-    def test_mid_job_is_included(self):
-        # 1 level away → stretch, still shown
+    def test_entry_one_year_is_excluded(self):
+        jobs = [_job("Software Engineer", "1+ years of experience required")]
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 0
+
+    def test_mid_two_years_is_excluded(self):
         jobs = [_job("Software Engineer", "2+ years of experience required")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 1
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 0
 
-    def test_senior_by_title_is_excluded(self):
-        jobs = [_job("Senior Software Engineer")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 0
+    def test_senior_five_years_is_excluded(self):
+        jobs = [_job("Software Engineer", "Minimum 5 years of experience")]
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 0
 
-    def test_senior_by_yoe_description_is_excluded(self):
-        jobs = [_job("Software Engineer", "Minimum 5 years of experience required.")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 0
-
-    def test_senior_by_yoe_abbreviation_is_excluded(self):
+    def test_senior_yoe_abbreviation_is_excluded(self):
         jobs = [_job("Software Engineer", "5+ yoe required")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 0
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 0
 
-    def test_senior_by_description_keyword_is_excluded(self):
-        jobs = [_job("Software Engineer", "Looking for a seasoned professional with deep expertise.")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 0
-
-    def test_untagged_job_treated_as_mid_and_included(self):
-        # No level signals → defaults to "mid" → entry (2) vs mid (3) = diff 1 → compatible
-        jobs = [_job("Software Engineer", "Build cool stuff.")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 1
-        assert result[0]["job_level"] is None  # raw inferred level is still None
-
-    def test_mixed_batch_filters_correctly(self):
+    def test_mixed_batch(self):
         jobs = [
-            _job("Junior Backend Engineer"),                              # entry → keep
-            _job("Backend Engineer", "2+ years of experience"),          # mid → keep
-            _job("Senior Backend Engineer"),                              # senior → drop
-            _job("Staff Backend Engineer"),                               # senior → drop
-            _job("Backend Engineer", "Minimum 6 years of experience"),   # senior → drop
-            _job("Backend Engineer", "Build APIs"),                       # untagged→mid → keep
+            _job("Junior Backend Engineer"),                              # no requirement → keep
+            _job("Backend Engineer", "2+ years of experience"),           # 2 yoe → drop
+            _job("Senior Backend Engineer", "5+ years of experience"),    # 5 yoe → drop
+            _job("Backend Engineer", "Build APIs."),                      # no requirement → keep
+            _job("Backend Engineer", "Minimum 6 years of experience"),    # 6 yoe → drop
         ]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
+        result = _apply_yoe_filter(jobs, self.YOE)
+        assert len(result) == 2
         kept_titles = [j["title"] for j in result]
         assert "Junior Backend Engineer" in kept_titles
-        assert "Senior Backend Engineer" not in kept_titles
-        assert "Staff Backend Engineer" not in kept_titles
-        # 3 jobs kept: junior, mid yoe, untagged
-        assert len(result) == 3
+        assert "Backend Engineer" in kept_titles
 
 
 # ---------------------------------------------------------------------------
-# Intern/student candidate (parse-and-recommend → "intern")
+# 2 years of experience
 # ---------------------------------------------------------------------------
-class TestInternCandidate:
-    CANDIDATE = "intern"
+class TestTwoYoECandidate:
+    YOE = 2.0
 
-    def test_intern_job_is_included(self):
-        jobs = [_job("Software Engineering Intern")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 1
+    def test_two_year_requirement_passes(self):
+        jobs = [_job("Software Engineer", "2+ years of experience required")]
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 1
 
-    def test_entry_job_is_included(self):
-        # 1 level above intern → compatible
-        jobs = [_job("Junior Software Engineer")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 1
+    def test_one_year_requirement_passes(self):
+        jobs = [_job("Software Engineer", "1+ years of experience")]
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 1
 
-    def test_mid_job_is_excluded(self):
-        # 2 levels above intern → incompatible
-        jobs = [_job("Software Engineer", "3+ years of experience")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 0
+    def test_three_year_requirement_is_excluded(self):
+        jobs = [_job("Software Engineer", "3+ years of experience required")]
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 0
 
-    def test_senior_job_is_excluded(self):
-        jobs = [_job("Senior Software Engineer")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 0
+    def test_five_year_requirement_is_excluded(self):
+        jobs = [_job("Software Engineer", "5+ years of experience")]
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 0
 
-    def test_untagged_job_treated_as_mid_and_excluded(self):
-        # No signals → defaults to "mid" → intern (1) vs mid (3) = diff 2 → incompatible
-        jobs = [_job("Software Engineer", "Build cool stuff.")]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 0
+    def test_no_requirement_passes(self):
+        jobs = [_job("Software Engineer", "Great opportunity.")]
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 1
 
 
 # ---------------------------------------------------------------------------
-# Mid-level candidate (parse-and-recommend → "mid")
-# Filtering is NOT yet active for mid — all jobs pass through.
+# 5 years of experience
 # ---------------------------------------------------------------------------
-class TestMidLevelCandidate:
-    CANDIDATE = "mid"
+class TestFiveYoECandidate:
+    YOE = 5.0
 
-    def test_all_jobs_pass_through(self):
+    def test_five_year_requirement_passes(self):
+        jobs = [_job("Senior Engineer", "5+ years of experience")]
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 1
+
+    def test_three_year_requirement_passes(self):
+        jobs = [_job("Engineer", "3+ years of experience")]
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 1
+
+    def test_seven_year_requirement_is_excluded(self):
+        jobs = [_job("Staff Engineer", "7+ years of experience")]
+        assert len(_apply_yoe_filter(jobs, self.YOE)) == 0
+
+
+# ---------------------------------------------------------------------------
+# Unknown candidate YoE (None) — all jobs pass through
+# ---------------------------------------------------------------------------
+class TestUnknownYoECandidate:
+    def test_all_jobs_pass(self):
         jobs = [
-            _job("Software Engineering Intern"),
-            _job("Junior Software Engineer"),
-            _job("Software Engineer", "3+ years of experience"),
-            _job("Senior Software Engineer"),
+            _job("Intern"),
+            _job("Junior Engineer"),
+            _job("Engineer", "3+ years of experience"),
+            _job("Senior Engineer", "5+ years of experience"),
         ]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 4
-
-
-# ---------------------------------------------------------------------------
-# Senior candidate (parse-and-recommend → "senior")
-# Filtering is NOT yet active for senior — all jobs pass through.
-# ---------------------------------------------------------------------------
-class TestSeniorCandidate:
-    CANDIDATE = "senior"
-
-    def test_all_jobs_pass_through(self):
-        jobs = [
-            _job("Software Engineering Intern"),
-            _job("Junior Software Engineer"),
-            _job("Software Engineer", "2+ years of experience"),
-            _job("Senior Software Engineer"),
-        ]
-        result = _apply_level_filter(jobs, self.CANDIDATE)
-        assert len(result) == 4
-
-
-# ---------------------------------------------------------------------------
-# No candidate level (parse-and-recommend could not determine level)
-# ---------------------------------------------------------------------------
-class TestUnknownCandidateLevel:
-    def test_all_jobs_pass_when_candidate_level_is_none(self):
-        jobs = [
-            _job("Software Engineering Intern"),
-            _job("Junior Software Engineer"),
-            _job("Software Engineer", "3+ years of experience"),
-            _job("Senior Software Engineer"),
-        ]
-        result = _apply_level_filter(jobs, None)
-        assert len(result) == 4
-
-    def test_all_jobs_pass_when_candidate_level_is_empty_string(self):
-        jobs = [_job("Senior Software Engineer"), _job("Junior Developer")]
-        result = _apply_level_filter(jobs, "")
-        assert len(result) == 2
-
-
-# ---------------------------------------------------------------------------
-# Cross-check: inferred job_level matches what parse-and-recommend would store
-# ---------------------------------------------------------------------------
-class TestJobLevelInferenceAlignedWithCandidateLevel:
-    """
-    Spot-check that infer_job_level returns a level string that is a valid key
-    in LEVEL_ORDER — guaranteeing level_compatible arithmetic will work correctly.
-    """
-    @pytest.mark.parametrize("title,desc,expected_level", [
-        ("Senior Data Engineer",             "",                                    "senior"),
-        ("Staff ML Engineer",                "",                                    "senior"),
-        ("Data Engineer",                    "Requires 5+ years of experience.",    "senior"),
-        ("Data Engineer",                    "At least 5 yoe required.",            "senior"),
-        ("Data Engineer",                    "3+ years of experience.",             "mid"),
-        ("Junior Data Engineer",             "",                                    "entry"),
-        ("Data Engineering Intern",          "",                                    "intern"),
-        ("Data Engineer",                    "New grad or entry-level welcome.",    "entry"),
-        ("Data Engineer",                    "Build data pipelines.",               None),  # no signal
-    ])
-    def test_inferred_level(self, title, desc, expected_level):
-        level, _ = infer_job_level(desc, title)
-        assert level == expected_level
-        if level is not None:
-            assert level in LEVEL_ORDER, f"'{level}' not in LEVEL_ORDER"
+        assert len(_apply_yoe_filter(jobs, None)) == 4

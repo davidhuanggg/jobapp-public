@@ -16,6 +16,18 @@ def save_resume(db: Session, resume_data: dict) -> ResumeDB:
 
     existing = db.query(ResumeDB).filter(ResumeDB.content_hash == content_hash).first()
     if existing:
+        # Patch fields that may have been NULL when the record was first saved
+        # (e.g. career_level / years_of_experience were added to the pipeline
+        # after this resume was originally uploaded).
+        changed = False
+        for field in ("career_level", "years_of_experience", "is_student", "skills"):
+            new_val = resume_data.get(field)
+            if new_val is not None and getattr(existing, field) is None:
+                setattr(existing, field, new_val)
+                changed = True
+        if changed:
+            db.commit()
+            db.refresh(existing)
         return existing
 
     resume = ResumeDB(
